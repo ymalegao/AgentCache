@@ -1,0 +1,322 @@
+[
+  {
+    "token_id": 872,
+    "token_str": "user",
+    "agg_importance": 3.470147733335142
+  },
+  {
+    "token_id": 729,
+    "token_str": " function",
+    "agg_importance": 2.8573581554271557
+  },
+  {
+    "token_id": 12218,
+    "token_str": " logic",
+    "agg_importance": 2.795821013274016
+  },
+  {
+    "token_id": 470,
+    "token_str": " return",
+    "agg_importance": 2.7934818974247686
+  },
+  {
+    "token_id": 52962,
+    "token_str": " factorial",
+    "agg_importance": 2.0332330774377896
+  },
+  {
+    "token_id": 13403,
+    "token_str": " accuracy",
+    "agg_importance": 2.0248138992874707
+  },
+  {
+    "token_id": 2041,
+    "token_str": " without",
+    "agg_importance": 1.783639978479456
+  },
+  {
+    "token_id": 2550,
+    "token_str": " output",
+    "agg_importance": 1.7534833837438515
+  },
+  {
+    "token_id": 45317,
+    "token_str": " systemic",
+    "agg_importance": 1.661430076316551
+  },
+  {
+    "token_id": 27231,
+    "token_str": " transparency",
+    "agg_importance": 1.634436289469401
+  },
+  {
+    "token_id": 1366,
+    "token_str": " want",
+    "agg_importance": 1.630303418194806
+  },
+  {
+    "token_id": 882,
+    "token_str": " time",
+    "agg_importance": 1.6273045010036895
+  },
+  {
+    "token_id": 2968,
+    "token_str": " give",
+    "agg_importance": 1.5793301617657698
+  },
+  {
+    "token_id": 59901,
+    "token_str": " factual",
+    "agg_importance": 1.397825594301577
+  },
+  {
+    "token_id": 1445,
+    "token_str": "(n",
+    "agg_importance": 1.3907527217158564
+  },
+  {
+    "token_id": 770,
+    "token_str": " else",
+    "agg_importance": 1.3430794609917536
+  },
+  {
+    "token_id": 594,
+    "token_str": "'s",
+    "agg_importance": 1.3125276918764468
+  },
+  {
+    "token_id": 2293,
+    "token_str": "\u2014",
+    "agg_importance": 1.292141667118779
+  },
+  {
+    "token_id": 1075,
+    "token_str": " like",
+    "agg_importance": 1.2709586532027632
+  },
+  {
+    "token_id": 5099,
+    "token_str": " mid",
+    "agg_importance": 1.1988946420175057
+  },
+  {
+    "token_id": 7032,
+    "token_str": " tests",
+    "agg_importance": 1.1872098004376446
+  },
+  {
+    "token_id": 1550,
+    "token_str": " high",
+    "agg_importance": 1.1796445493344907
+  },
+  {
+    "token_id": 3347,
+    "token_str": " low",
+    "agg_importance": 1.1765535142686632
+  },
+  {
+    "token_id": 9668,
+    "token_str": " Less",
+    "agg_importance": 1.1724197952835644
+  },
+  {
+    "token_id": 2897,
+    "token_str": "ability",
+    "agg_importance": 1.160764764856409
+  },
+  {
+    "token_id": 2975,
+    "token_str": " copy",
+    "agg_importance": 1.1568284211335358
+  },
+  {
+    "token_id": 944,
+    "token_str": "'t",
+    "agg_importance": 1.1418096754286025
+  },
+  {
+    "token_id": 288,
+    "token_str": "es",
+    "agg_importance": 1.115081504539207
+  },
+  {
+    "token_id": 308,
+    "token_str": " n",
+    "agg_importance": 1.111379552770544
+  },
+  {
+    "token_id": 12291,
+    "token_str": " waste",
+    "agg_importance": 1.1089217574508103
+  },
+  {
+    "token_id": 29279,
+    "token_str": " Ensure",
+    "agg_importance": 1.10389483416522
+  },
+  {
+    "token_id": 9731,
+    "token_str": " Thank",
+    "agg_importance": 1.0900339197229456
+  },
+  {
+    "token_id": 10354,
+    "token_str": " proceed",
+    "agg_importance": 1.041609940705476
+  },
+  {
+    "token_id": 6928,
+    "token_str": " Show",
+    "agg_importance": 1.0348820156521266
+  },
+  {
+    "token_id": 89454,
+    "token_str": " preamble",
+    "agg_importance": 1.020130298755787
+  },
+  {
+    "token_id": 7271,
+    "token_str": " definition",
+    "agg_importance": 1.0120425754123263
+  },
+  {
+    "token_id": 821,
+    "token_str": " data",
+    "agg_importance": 0.9820873119212963
+  },
+  {
+    "token_id": 25165,
+    "token_str": " unnecessary",
+    "agg_importance": 0.978668212890625
+  },
+  {
+    "token_id": 1414,
+    "token_str": " know",
+    "agg_importance": 0.9711955035174336
+  },
+  {
+    "token_id": 39565,
+    "token_str": " Provide",
+    "agg_importance": 0.9688788519965277
+  },
+  {
+    "token_id": 61681,
+    "token_str": " procedural",
+    "agg_importance": 0.9515824494538482
+  },
+  {
+    "token_id": 1373,
+    "token_str": " require",
+    "agg_importance": 0.9450816401728878
+  },
+  {
+    "token_id": 39046,
+    "token_str": " vague",
+    "agg_importance": 0.9405732331452547
+  },
+  {
+    "token_id": 707,
+    "token_str": " def",
+    "agg_importance": 0.9282588252314814
+  },
+  {
+    "token_id": 2169,
+    "token_str": " target",
+    "agg_importance": 0.9200262846770109
+  },
+  {
+    "token_id": 46899,
+    "token_str": " rigorous",
+    "agg_importance": 0.9122382269965277
+  },
+  {
+    "token_id": 4190,
+    "token_str": " suggest",
+    "agg_importance": 0.9030888875325521
+  },
+  {
+    "token_id": 5621,
+    "token_str": "actor",
+    "agg_importance": 0.890178539134838
+  },
+  {
+    "token_id": 8129,
+    "token_str": " implementation",
+    "agg_importance": 0.8897825170446324
+  },
+  {
+    "token_id": 1584,
+    "token_str": " state",
+    "agg_importance": 0.8870673709445529
+  },
+  {
+    "token_id": 26558,
+    "token_str": " stays",
+    "agg_importance": 0.8847763626663773
+  },
+  {
+    "token_id": 5383,
+    "token_str": " pattern",
+    "agg_importance": 0.8738490917064525
+  },
+  {
+    "token_id": 7405,
+    "token_str": " Make",
+    "agg_importance": 0.8728485107421875
+  },
+  {
+    "token_id": 4279,
+    "token_str": " half",
+    "agg_importance": 0.8560087415907118
+  },
+  {
+    "token_id": 16953,
+    "token_str": " mechanism",
+    "agg_importance": 0.8406651814778645
+  },
+  {
+    "token_id": 1969,
+    "token_str": " must",
+    "agg_importance": 0.8166642365632235
+  },
+  {
+    "token_id": 1681,
+    "token_str": " request",
+    "agg_importance": 0.8135607684100115
+  },
+  {
+    "token_id": 1753,
+    "token_str": " much",
+    "agg_importance": 0.8104674727828414
+  },
+  {
+    "token_id": 4756,
+    "token_str": "izes",
+    "agg_importance": 0.8081481368453414
+  },
+  {
+    "token_id": 25784,
+    "token_str": " Skip",
+    "agg_importance": 0.806308039912471
+  },
+  {
+    "token_id": 14849,
+    "token_str": " tracking",
+    "agg_importance": 0.8044670952690972
+  },
+  {
+    "token_id": 3175,
+    "token_str": " single",
+    "agg_importance": 0.8000790631329572
+  },
+  {
+    "token_id": 3520,
+    "token_str": " actually",
+    "agg_importance": 0.7917412651909722
+  },
+  {
+    "token_id": 37052,
+    "token_str": " methodology",
+    "agg_importance": 0.7912654170283565
+  }
+]
