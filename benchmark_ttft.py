@@ -50,10 +50,10 @@ Please solve the issue provided by the user. You can execute bash commands and e
     # ── Condition 1: Baseline (disable injection by renaming centroid files) ──
     print("\n══ Condition 1: Cold Start (no centroid) ══")
 
-    K_path = "/home/yash/agentcache/attention_centroid_output/centroid_K.npy"
-    V_path = "/home/yash/agentcache/attention_centroid_output/centroid_V.npy"
-    K_hidden = "/home/yash/agentcache/attention_centroid_output/centroid_K.npy.bak"
-    V_hidden = "/home/yash/agentcache/attention_centroid_output/centroid_V.npy.bak"
+    K_path = os.environ.get("VLLM_CENTROID_K_PATH", "/home/yash/agentcache/attention_centroid_output/centroid_K.npy")
+    V_path = os.environ.get("VLLM_CENTROID_V_PATH", "/home/yash/agentcache/attention_centroid_output/centroid_V.npy")
+    K_hidden = K_path + ".bak"
+    V_hidden = V_path + ".bak"
 
     if os.path.exists(K_hidden):
         os.rename(K_hidden, K_path)

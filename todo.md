@@ -22,3 +22,21 @@ Your current RoPE handling in `vllm/centroid_injector.py` is on the right track.
 *   Continue using your scheduler bypass (`total_synthetic_len`), which tricks the engine into treating the injected block as already computed, effectively bypassing the $O(N^2)$ prefill computation for the domain rules.
 
 By making this pivot, your vLLM engine will inject a mathematically valid, gradient-optimized tensor that the model recognizes as a compressed instruction set, rather than averaged noise.
+
+
+
+
+══ Summary ══
+  Cold TTFT:   0.0611s
+  Inject TTFT: 0.0716s
+  Speedup: 0.85x  (SLOWER — overhead > savings)
+  Output: coherent ✓
+
+══ Claude TTFT / perf debug ══
+  PROMPT chars: 3828
+  scheduler synthetic gap (tokens): 64
+  cold_ttft_mean_s:  0.0611  trials: ['0.0580', '0.0629', '0.0625']
+  inject_ttft_mean_s: 0.0716  trials: ['0.0970', '0.0565', '0.0611']
+  ratio cold/inject: 0.854x
+  Note: cold and inject use two separate LLM(...) engine lifetimes (two model loads).
+  Env (centroid-related): {'CENTROID_PERF_DEBUG': '1', 'CENTROID_TIMING': '1', 'VLLM_CENTROID_K_PATH': '/home/yash/agentcache/centroid_K.npy', 'VLLM_CENTROID_SCHEDULER': '1', 'VLLM_CENTROID_SYS_TOKENS': '0', 'VLLM_CENTROID_USE_LMCACHE': '0', 'VLLM_CENTROID_V_PATH': '/home/yash/agentcache/centroid_V.npy'}

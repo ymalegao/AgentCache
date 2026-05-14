@@ -198,6 +198,23 @@ class CentroidInjector:
             else:
                 sink_rotated = self._sink_k_template.view(n_layers, 1, num_kv_heads, head_dim)
 
+        debug = os.environ.get("CENTROID_DEBUG", "0") == "1"
+        if debug and not getattr(self, "_debug_printed", False):
+            self._debug_printed = True
+            kv0 = kv_caches[0]
+            logger.info(
+                "[CENTROID DEBUG] kv_caches[0] type=%s shape=%s dtype=%s  "
+                "block_table shape=%s  block_size=%s  num_kv_heads=%s  head_dim=%s  "
+                "n_layers=%s  num_reqs=%s  prompt_lens=%s",
+                type(kv0).__name__,
+                getattr(kv0, "shape", "N/A"),
+                getattr(kv0, "dtype", "N/A"),
+                tuple(block_table.shape),
+                block_size, num_kv_heads, head_dim, n_layers, num_reqs,
+                prompt_lens_np[:num_reqs].tolist() if hasattr(prompt_lens_np, "tolist") else list(prompt_lens_np[:num_reqs]),
+            )
+            logger.info("[CENTROID DEBUG] block_table[0,:8] = %s", block_table[0, :8].tolist())
+
         wrote_any = False
 
         for seq in range(num_reqs):
@@ -206,7 +223,7 @@ class CentroidInjector:
                 continue
 
             prompt_len = int(prompt_lens_np[seq])
-            
+
             # --- 1. Inject Exact System Prompt KV (if needed and available) ---
             if not self.use_lmcache and self.sys_K is not None:
                 actual_sys_len = min(self.sys_token_count, self.sys_K.shape[1])
@@ -221,11 +238,23 @@ class CentroidInjector:
                         for layer_idx in range(n_layers):
                             kv_tensor = kv_caches[layer_idx]
                             slot_dtype = kv_tensor.dtype
-                            
+
                             k_sys_row = sys_rotated[layer_idx, :sys_fill_len, :, :].to(slot_dtype)
                             v_sys_row = self.sys_V[layer_idx, :sys_fill_len, :].view(sys_fill_len, num_kv_heads, head_dim).to(slot_dtype)
                             kv_tensor[0, phys_blocks_sys, intras_sys, :, :] = k_sys_row
                             kv_tensor[1, phys_blocks_sys, intras_sys, :, :] = v_sys_row
+                        if debug:
+                            kv0 = kv_caches[0]
+                            readback = kv0[0, int(phys_blocks_sys[0]), int(intras_sys[0]), :, :]
+                            expected = sys_rotated[0, 0, :, :].to(kv0.dtype)
+                            match = torch.allclose(readback, expected, atol=1e-2)
+                            logger.info(
+                                "[CENTROID DEBUG] sys_K write readback match=%s  "
+                                "phys_block=%s  intra=%s  written_norm=%.4f  readback_norm=%.4f",
+                                match, int(phys_blocks_sys[0]), int(intras_sys[0]),
+                                expected.float().norm().item(),
+                                readback.float().norm().item(),
+                            )
                         wrote_any = True
 
             # --- 2. Inject Domain Centroid KV ---
@@ -257,7 +286,23 @@ class CentroidInjector:
                         slot_dtype = kv_tensor.dtype
                         kv_tensor[0, phys_blocks_cent, intras_cent, :, :] = k_rotated_all[layer_idx].to(slot_dtype)
                         kv_tensor[1, phys_blocks_cent, intras_cent, :, :] = v_all[layer_idx].to(slot_dtype)
-                    
+
+                    if debug:
+                        kv0 = kv_caches[0]
+                        readback = kv0[0, int(phys_blocks_cent[0]), int(intras_cent[0]), :, :]
+                        expected = k_rotated_all[0, 0, :, :].to(kv0.dtype)
+                        match = torch.allclose(readback, expected, atol=1e-2)
+                        logger.info(
+                            "[CENTROID DEBUG] centroid write readback match=%s  "
+                            "pos=%d  phys_block=%s  intra=%s  phys_blocks_cent[:5]=%s  intras_cent[:5]=%s  "
+                            "written_norm=%.4f  readback_norm=%.4f",
+                            match, int(pos_idx_cent[0]),
+                            int(phys_blocks_cent[0]), int(intras_cent[0]),
+                            phys_blocks_cent[:5].tolist(), intras_cent[:5].tolist(),
+                            expected.float().norm().item(),
+                            readback.float().norm().item(),
+                        )
+
                     wrote_any = True
 
             if wrote_any and req_id is not None:

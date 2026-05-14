@@ -14,6 +14,112 @@ from vllm.v1.attention.backends.utils import NULL_BLOCK_ID
 
 logger = init_logger(__name__)
 
+# Throttle runner-side RoPE logs (same env as centroid_injector.CENTROID_DEBUG_ROPE).
+_runner_rope_dbg_calls = 0
+
+
+def _maybe_log_runner_rope_context(
+    runner: Any,
+    num_reqs: int,
+    input_batch: Any | None,
+    prompt_lens_np: np.ndarray,
+) -> None:
+    """Compare scheduler/forward positions to what the injector assumes (0..sys-1, sys..)."""
+    global _runner_rope_dbg_calls
+    if os.environ.get("CENTROID_DEBUG_ROPE", "0") != "1":
+        return
+    if _runner_rope_dbg_calls >= 24:
+        return
+    call = _runner_rope_dbg_calls
+    _runner_rope_dbg_calls += 1
+
+    try:
+        ib = getattr(runner, "input_batch", None) or input_batch
+        uses_mrope = bool(getattr(runner, "uses_mrope", False))
+        xdrope = int(getattr(runner, "uses_xdrope_dim", 0) or 0)
+        if uses_mrope or xdrope > 0:
+            logger.warning(
+                "[CENTROID ROPE] runner_ctx#%s M-RoPE/XD-RoPE active (uses_mrope=%s "
+                "xdrope_dim=%s) — flat position IDs in centroid_injector likely **wrong**.",
+                call,
+                uses_mrope,
+                xdrope,
+            )
+
+        nc = getattr(ib, "num_computed_tokens_cpu", None)
+        npt = getattr(ib, "num_prompt_tokens", None)
+        if nc is not None and num_reqs > 0:
+            nc_l = nc[:num_reqs].tolist() if hasattr(nc, "tolist") else list(nc[:num_reqs])
+        else:
+            nc_l = "n/a"
+        if npt is not None and num_reqs > 0:
+            npt_l = npt[:num_reqs].tolist() if hasattr(npt, "tolist") else list(npt[:num_reqs])
+        else:
+            npt_l = "n/a"
+
+        pl = (
+            prompt_lens_np[:num_reqs].tolist()
+            if hasattr(prompt_lens_np, "tolist")
+            else list(prompt_lens_np[:num_reqs])
+        )
+
+        qsl_gpu = getattr(runner, "query_start_loc", None)
+        positions = getattr(runner, "positions", None)
+        n_tok = None
+        pos_sample = None
+        if qsl_gpu is not None and positions is not None and num_reqs > 0:
+            try:
+                n_tok = int(qsl_gpu.gpu[num_reqs].item())
+                pos_flat = positions[:n_tok].detach().cpu().numpy()
+                pos_sample = pos_flat[: min(32, pos_flat.shape[0])].tolist()
+                per_req = []
+                for i in range(num_reqs):
+                    s = int(qsl_gpu.gpu[i].item())
+                    e = int(qsl_gpu.gpu[i + 1].item())
+                    seg = pos_flat[s:e].tolist() if e > s else []
+                    per_req.append(
+                        {"req": i, "num_scheduled": e - s, "positions_minmax": [min(seg), max(seg)] if seg else None}
+                    )
+            except Exception as ex:
+                per_req = [f"(positions parse failed: {ex})"]
+        else:
+            per_req = ["(no runner.query_start_loc.gpu or runner.positions)"]
+
+        sm = None
+        try:
+            bt0 = ib.block_table[0] if ib is not None else None
+            if bt0 is not None and hasattr(bt0, "slot_mapping") and n_tok:
+                sm_gpu = bt0.slot_mapping.gpu[:n_tok]
+                sm = sm_gpu.detach().cpu().numpy()[: min(16, n_tok)].tolist()
+        except Exception:
+            sm = None
+
+        logger.info(
+            "[CENTROID ROPE] runner_ctx#%s num_computed_tokens_cpu[:n_req]=%s "
+            "num_prompt_tokens[:n_req]=%s prompt_lens_np(inject)=%s",
+            call,
+            nc_l,
+            npt_l,
+            pl,
+        )
+        logger.info(
+            "[CENTROID ROPE] runner_ctx#%s this-step positions (first up to 32)=%s "
+            "n_tokens=%s per_req_summary=%s",
+            call,
+            pos_sample,
+            n_tok,
+            per_req,
+        )
+        if sm is not None:
+            logger.info(
+                "[CENTROID ROPE] runner_ctx#%s slot_mapping gid0 (first up to 16)=%s "
+                "(injector maps logical_pos -> block_table[row,col] + intra; must agree)",
+                call,
+                sm,
+            )
+    except Exception:
+        logger.exception("[CENTROID ROPE] runner_ctx#%s failed to collect runner context", call)
+
 # ---------- Scheduler-side centroid gap (Path B) ----------
 # These are module-level caches so the gate + sys-count resolution runs once
 # per process, not on every schedule() call.
@@ -51,14 +157,21 @@ def _centroid_sched_check_once() -> tuple[bool, int]:
     try:
         from vllm.centroid_injector import load_sys_prefix_token_count
 
-        n = load_sys_prefix_token_count(k)
-        
-        # Get centroid sequence length safely
-        import numpy as np
         k_np = np.load(k, mmap_mode='r')
         centroid_len = k_np.shape[1] if k_np.ndim == 3 else 1
-        
-        total_len = n + centroid_len
+        sys_count = load_sys_prefix_token_count(k)
+
+        has_exact_sys = bool(os.environ.get("VLLM_EXACT_SYS_K_PATH"))
+        if has_exact_sys:
+            # Exact sys KV covers 0..sys_count-1; centroid fills sys_count..
+            # but gets overwritten when the model processes user-query tokens.
+            # Gap = sys_count only so the model still computes the user query.
+            total_len = sys_count
+        else:
+            # Pure PEFT / no exact sys KV: centroid fills 0..sys_count+centroid_len-1.
+            # Including centroid_len is safe here because sys_count is typically 0 or 1
+            # and sys_count+centroid_len << prompt_len.
+            total_len = sys_count + centroid_len
     except Exception:
         logger.exception(
             "[CENTROID] Failed to load sys_token_count or centroid shape; scheduler mode disabled."
@@ -70,8 +183,8 @@ def _centroid_sched_check_once() -> tuple[bool, int]:
     _centroid_sched_enabled = True
     _centroid_sched_sys_count = total_len
     logger.info(
-        "[CENTROID] Scheduler mode enabled: total_synthetic_len=%d (sys=%d, centroid=%d, K=%s)", 
-        total_len, n, centroid_len, k
+        "[CENTROID] Scheduler mode enabled: total_synthetic_len=%d (K=%s)",
+        total_len, k,
     )
     return True, total_len
 
@@ -106,24 +219,33 @@ def centroid_sched_gap(num_prompt_tokens: int, base_computed: int) -> int:
     effective_cap = min(sys_n, num_prompt_tokens - 1)
     gap = max(0, effective_cap - base_computed)
     if gap > 0:
-        logger.debug(
-            "[CENTROID] sched gap=%d (sys=%d, prompt_tokens=%d, base_computed=%d)",
-            gap,
-            sys_n,
-            num_prompt_tokens,
-            base_computed,
-        )
+        if os.environ.get("CENTROID_DEBUG_ROPE", "0") == "1":
+            logger.info(
+                "[CENTROID] sched gap=%d (sys=%d, prompt_tokens=%d, base_computed=%d)",
+                gap,
+                sys_n,
+                num_prompt_tokens,
+                base_computed,
+            )
+        else:
+            logger.debug(
+                "[CENTROID] sched gap=%d (sys=%d, prompt_tokens=%d, base_computed=%d)",
+                gap,
+                sys_n,
+                num_prompt_tokens,
+                base_computed,
+            )
     return gap
 
 
 def centroid_paths() -> tuple[str, str]:
     k = os.environ.get(
         "VLLM_CENTROID_K_PATH",
-        "/home/yash/agentcache/centroid_output/centroid_K_B.npy",
+        "/home/yash/agentcache/centroid_K.npy",
     )
     v = os.environ.get(
         "VLLM_CENTROID_V_PATH",
-        "/home/yash/agentcache/centroid_output/centroid_V_B.npy",
+        "/home/yash/agentcache/centroid_V.npy",
     )
     return k, v
 
@@ -164,7 +286,10 @@ def centroid_override_num_computed(
     """Treat scheduler-reported 0 computed tokens as warm-started prefix length."""
     if injector is None or num_computed != 0:
         return num_computed
-    n = int(getattr(injector, "sys_token_count", 128)) + int(getattr(injector, "centroid_len", 1))
+    sys_n = int(getattr(injector, "sys_token_count", 0))
+    cent_n = int(getattr(injector, "centroid_len", 0))
+    has_exact_sys = bool(os.environ.get("VLLM_EXACT_SYS_K_PATH"))
+    n = sys_n if has_exact_sys else (sys_n + cent_n)
     logger.info("[CENTROID] Overriding num_computed_tokens to %s", n)
     return n
 
@@ -247,6 +372,8 @@ def apply_centroid_block_table(
         return block_table
 
     prompt_lens_np = _prompt_lens_np(runner, num_reqs, input_batch)
+
+    _maybe_log_runner_rope_context(runner, num_reqs, input_batch, prompt_lens_np)
 
     req_id_list: list[str] | None = None
     if input_batch is not None:

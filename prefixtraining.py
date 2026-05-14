@@ -13,7 +13,7 @@ from peft import get_peft_model, PrefixTuningConfig, TaskType
 # Configuration
 MODEL_ID = "/mnt/g/agentcache/models/qwen-1.5b"
 OUTPUT_DIR = "./agentcache_prefix_model"
-NUM_VIRTUAL_TOKENS = 64  # Keeping it compact to avoid softmax dilution
+NUM_VIRTUAL_TOKENS = 256  # Keeping it compact to avoid softmax dilution
 BATCH_SIZE = 4
 EPOCHS = 3
 LEARNING_RATE = 5e-3 # Prefix tuning requires higher LRs than full finetuning

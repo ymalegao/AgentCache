@@ -50,13 +50,21 @@ sys_K = np.zeros((num_hidden_layers, seq_len, kv_dim), dtype=np.float32)
 sys_V = np.zeros_like(sys_K)
 
 for layer_idx in range(num_hidden_layers):
-    layer = model.model.layers[layer_idx].self_attn
-    W_K = layer.k_proj.weight.detach().float().cpu().numpy()
-    W_V = layer.v_proj.weight.detach().float().cpu().numpy()
-    bias_K = layer.k_proj.bias.detach().float().cpu().numpy() if hasattr(layer.k_proj, "bias") and layer.k_proj.bias is not None else 0
-    bias_V = layer.v_proj.bias.detach().float().cpu().numpy() if hasattr(layer.v_proj, "bias") and layer.v_proj.bias is not None else 0
-    
-    layer_hs = hs[layer_idx][0].float().cpu().numpy() # [seq_len, hidden_dim]
+    layer = model.model.layers[layer_idx]
+    attn = layer.self_attn
+    W_K = attn.k_proj.weight.detach().float().cpu().numpy()
+    W_V = attn.v_proj.weight.detach().float().cpu().numpy()
+    bias_K = attn.k_proj.bias.detach().float().cpu().numpy() if hasattr(attn.k_proj, "bias") and attn.k_proj.bias is not None else 0
+    bias_V = attn.v_proj.bias.detach().float().cpu().numpy() if hasattr(attn.v_proj, "bias") and attn.v_proj.bias is not None else 0
+
+    # Apply input_layernorm before K/V projection — Qwen2 is a pre-norm transformer.
+    # hs[layer_idx] is the raw residual stream (output of prior layer), NOT yet normalized.
+    # The model computes K = input_layernorm(hs) @ W_K^T, so we must do the same.
+    raw_hs = hs[layer_idx][0]  # bfloat16 tensor on CUDA, shape [seq_len, hidden_dim]
+    with torch.no_grad():
+        normed_hs = layer.input_layernorm(raw_hs)  # apply RMSNorm
+    layer_hs = normed_hs.float().cpu().numpy()  # [seq_len, hidden_dim]
+
     sys_K[layer_idx] = layer_hs @ W_K.T + bias_K
     sys_V[layer_idx] = layer_hs @ W_V.T + bias_V
 
