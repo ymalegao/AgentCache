@@ -1,0 +1,18 @@
+{
+  "auto_mapping": null,
+  "base_model_name_or_path": "/mnt/g/agentcache/models/qwen-1.5b",
+  "encoder_hidden_size": 256,
+  "inference_mode": true,
+  "init_weights": null,
+  "modules_to_save": null,
+  "num_attention_heads": 2,
+  "num_layers": 28,
+  "num_transformer_submodules": 1,
+  "num_virtual_tokens": 256,
+  "peft_type": "PREFIX_TUNING",
+  "peft_version": "0.19.1",
+  "prefix_projection": true,
+  "revision": null,
+  "task_type": "CAUSAL_LM",
+  "token_dim": 256
+}
