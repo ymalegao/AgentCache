@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import numpy as np
@@ -16,6 +17,10 @@ logger = init_logger(__name__)
 
 # Throttle runner-side RoPE logs (same env as centroid_injector.CENTROID_DEBUG_ROPE).
 _runner_rope_dbg_calls = 0
+_centroid_timing_apply_calls = [0]  # list avoids `global` in apply_centroid_block_table
+_centroid_perf_dbg_apply_calls = [0]
+
+_ROTARY_CACHE_UNSET = object()
 
 
 def _maybe_log_runner_rope_context(
@@ -32,6 +37,11 @@ def _maybe_log_runner_rope_context(
         return
     call = _runner_rope_dbg_calls
     _runner_rope_dbg_calls += 1
+    if call == 0:
+        logger.warning(
+            "[CENTROID ROPE] CENTROID_DEBUG_ROPE=1 — verbose logs and CPU tensor reads "
+            "run on every attention step; **unset for TTFT / throughput benchmarks**."
+        )
 
     try:
         ib = getattr(runner, "input_batch", None) or input_batch
@@ -312,6 +322,16 @@ def try_get_rotary_emb(runner: Any) -> Any | None:
         return None
 
 
+def try_get_rotary_emb_cached(runner: Any) -> Any | None:
+    """Same as ``try_get_rotary_emb`` but resolved once per runner (``apply_centroid`` is hot)."""
+    cached = getattr(runner, "_centroid_cached_rotary_emb", _ROTARY_CACHE_UNSET)
+    if cached is not _ROTARY_CACHE_UNSET:
+        return cached  # type: ignore[return-value]
+    emb = try_get_rotary_emb(runner)
+    setattr(runner, "_centroid_cached_rotary_emb", emb)
+    return emb
+
+
 def _prompt_lens_np(
     runner: Any, num_reqs: int, input_batch: Any | None
 ) -> np.ndarray:
@@ -385,6 +405,40 @@ def apply_centroid_block_table(
             else:
                 req_id_list = [str(rids[i]) for i in range(int(num_reqs))]
 
+    if os.environ.get("CENTROID_PERF_DEBUG", "0") == "1":
+        idx = _centroid_perf_dbg_apply_calls[0]
+        _centroid_perf_dbg_apply_calls[0] = idx + 1
+        if idx < 200:
+            n_sched_pf = None
+            try:
+                qsl = getattr(runner, "query_start_loc", None)
+                if qsl is not None and num_reqs > 0:
+                    n_sched_pf = int(qsl.gpu[num_reqs].item())
+            except Exception:
+                pass
+            seeded = getattr(inj, "_centroid_seeded_req_ids", set())
+            pre_skip = False
+            if req_id_list is not None and num_reqs > 0:
+                pre_skip = all(str(req_id_list[i]) in seeded for i in range(num_reqs))
+            pl0 = int(prompt_lens_np[0]) if num_reqs > 0 else -1
+            logger.info(
+                "[CENTROID PERF] apply_pre call=%s n_scheduled_tokens=%s num_reqs=%s "
+                "req_ids=%s pre_seed_skip_all_seeded=%s prompt_lens[0]=%s",
+                idx,
+                n_sched_pf,
+                num_reqs,
+                req_id_list[:4] if req_id_list else None,
+                pre_skip,
+                pl0,
+            )
+
+    timing = os.environ.get("CENTROID_TIMING", "0")
+    t0 = None
+    if timing in ("1", "cuda"):
+        if timing == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
+        t0 = time.perf_counter()
+
     inj.seed_prefix_into_kv_cache(
         kvc,
         block_table,
@@ -394,10 +448,36 @@ def apply_centroid_block_table(
         head_dim=head_dim,
         block_size=block_size,
         null_block_id=NULL_BLOCK_ID,
-        rotary_emb=try_get_rotary_emb(runner),
+        rotary_emb=try_get_rotary_emb_cached(runner),
         num_query_heads=int(getattr(runner, "num_query_heads", num_kv)),
         target_dtype=getattr(runner, "dtype", None),
         device=getattr(runner, "device", None),
         req_ids=req_id_list,
     )
+
+    if t0 is not None:
+        if timing == "cuda" and torch.cuda.is_available():
+            torch.cuda.synchronize()
+        wall_ms = (time.perf_counter() - t0) * 1000.0
+        n_sched = None
+        try:
+            qsl = getattr(runner, "query_start_loc", None)
+            if qsl is not None and num_reqs > 0:
+                n_sched = int(qsl.gpu[num_reqs].item())
+        except Exception:
+            pass
+        idx = _centroid_timing_apply_calls[0]
+        if idx < 48:
+            logger.info(
+                "[CENTROID TIMING] apply_centroid mode=%s wall_ms=%.3f "
+                "n_scheduled_tokens=%s num_reqs=%s call_idx=%s req_ids=%s",
+                timing,
+                wall_ms,
+                n_sched,
+                num_reqs,
+                idx,
+                req_id_list[:2] if req_id_list else None,
+            )
+        _centroid_timing_apply_calls[0] = idx + 1
+
     return block_table

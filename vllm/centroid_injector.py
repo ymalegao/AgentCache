@@ -15,6 +15,35 @@ from vllm.logger import init_logger
 logger = init_logger(__name__)
 
 
+def _rope_debug_enabled() -> bool:
+    return os.environ.get("CENTROID_DEBUG_ROPE", "0") == "1"
+
+
+def _describe_rotary_emb(rotary_emb: Any) -> str:
+    """Short string for logs (RoPE variant / layout affects offline K rotation)."""
+    if rotary_emb is None:
+        return "rotary_emb=None"
+    parts = [type(rotary_emb).__name__]
+    for name in (
+        "head_size",
+        "rotary_dim",
+        "is_neox_style",
+        "rope_theta",
+        "max_position_embeddings",
+        "scaling_factor",
+    ):
+        if hasattr(rotary_emb, name):
+            try:
+                parts.append(f"{name}={getattr(rotary_emb, name)!r}")
+            except Exception:
+                parts.append(f"{name}=<?>")
+    # Some stacks wrap the real module
+    inner = getattr(rotary_emb, "rotary_emb", None)
+    if inner is not None and inner is not rotary_emb:
+        parts.append(f"inner={type(inner).__name__}")
+    return " ".join(parts)
+
+
 def load_sys_prefix_token_count(centroid_k_path: str) -> int:
     env = os.environ.get("VLLM_CENTROID_SYS_TOKENS")
     if env is not None:
@@ -133,6 +162,13 @@ class CentroidInjector:
         if rotary_emb is None:
             logger.warning("CentroidInjector: rotary_emb is None — injecting unrotated K")
 
+        # After the first successful seed per request_id, KV slots are stable; skip
+        # RoPE + writes on every chunked-prefill / decode step (major host+GPU win).
+        if req_ids is not None and num_reqs > 0:
+            seeded = self._centroid_seeded_req_ids
+            if all(str(req_ids[i]) in seeded for i in range(num_reqs)):
+                return
+
         n_layers = self.num_layers
         dev = device or self.K.device
         tgt_dtype = target_dtype or self.K.dtype
@@ -198,6 +234,81 @@ class CentroidInjector:
             else:
                 sink_rotated = self._sink_k_template.view(n_layers, 1, num_kv_heads, head_dim)
 
+        rope_dbg = _rope_debug_enabled()
+        if rope_dbg:
+            inv = int(getattr(self, "_rope_dbg_invocation", 0))
+            self._rope_dbg_invocation = inv + 1
+            if inv < 24:
+                actual_sys = (
+                    min(self.sys_token_count, self.sys_K.shape[1])
+                    if (not self.use_lmcache and self.sys_K is not None)
+                    else 0
+                )
+                kv_dim = int(self.K.shape[-1])
+                expect_kv = int(num_kv_heads * head_dim)
+                logger.info(
+                    "[CENTROID ROPE] inject#%s %s  n_q_heads=%s n_kv_heads=%s head_dim=%s "
+                    "kv_dim(npy)=%s (expect n_kv*h=%s)%s",
+                    inv,
+                    _describe_rotary_emb(rotary_emb),
+                    n_q_heads,
+                    num_kv_heads,
+                    head_dim,
+                    kv_dim,
+                    expect_kv,
+                    "" if kv_dim == expect_kv else " **MISMATCH: offline K layout?**",
+                )
+                logger.info(
+                    "[CENTROID ROPE] inject#%s sys_token_count=%s centroid_len=%s "
+                    "max_centroid_fill=%s actual_sys_stored=%s block_size=%s",
+                    inv,
+                    self.sys_token_count,
+                    self.centroid_len,
+                    max_centroid_fill,
+                    actual_sys,
+                    block_size,
+                )
+                if max_centroid_fill > 0:
+                    p0 = self.sys_token_count
+                    p1 = self.sys_token_count + max_centroid_fill - 1
+                    logger.info(
+                        "[CENTROID ROPE] inject#%s centroid RoPE positions used: %s..%s "
+                        "(inclusive; must match forward `positions` for those logical slots)",
+                        inv,
+                        p0,
+                        p1,
+                    )
+                if actual_sys > 0:
+                    logger.info(
+                        "[CENTROID ROPE] inject#%s system-prefix RoPE positions used: 0..%s",
+                        inv,
+                        actual_sys - 1,
+                    )
+                if self.sink_blend > 0.0 and self._sink_k_template is not None:
+                    logger.info(
+                        "[CENTROID ROPE] inject#%s sink blend: pos=%s (same as first centroid slot)",
+                        inv,
+                        self.sys_token_count,
+                    )
+                if k_rotated_max is not None:
+                    k0 = k_rotated_max[0, : min(3, k_rotated_max.shape[1]), 0, :3].float()
+                    logger.info(
+                        "[CENTROID ROPE] inject#%s k_rotated_max shape=%s layer0 head0 "
+                        "first3tok first3dim=%s",
+                        inv,
+                        tuple(k_rotated_max.shape),
+                        k0.detach().cpu().tolist(),
+                    )
+                if sys_rotated is not None:
+                    s0 = sys_rotated[0, : min(2, sys_rotated.shape[1]), 0, :3].float()
+                    logger.info(
+                        "[CENTROID ROPE] inject#%s sys_rotated shape=%s layer0 head0 "
+                        "first2tok first3dim=%s",
+                        inv,
+                        tuple(sys_rotated.shape),
+                        s0.detach().cpu().tolist(),
+                    )
+
         debug = os.environ.get("CENTROID_DEBUG", "0") == "1"
         if debug and not getattr(self, "_debug_printed", False):
             self._debug_printed = True
@@ -223,6 +334,20 @@ class CentroidInjector:
                 continue
 
             prompt_len = int(prompt_lens_np[seq])
+
+            if rope_dbg and inv < 24 and seq == 0:
+                cap = self.sys_token_count + self.centroid_len
+                logger.info(
+                    "[CENTROID ROPE] inject#%s seq0 prompt_len=%s req_id=%r — "
+                    "logical slots this run: sys[0..min(sys_stored,prompt)-1], "
+                    "centroid[sys_token_count .. min(sys+cntr,prompt)-1]; "
+                    "full synthetic cap sys+centroid_len=%s (diff vs prompt=%s)",
+                    inv,
+                    prompt_len,
+                    req_id,
+                    cap,
+                    cap - prompt_len,
+                )
 
             # --- 1. Inject Exact System Prompt KV (if needed and available) ---
             if not self.use_lmcache and self.sys_K is not None:
@@ -280,6 +405,26 @@ class CentroidInjector:
                 intras_cent = pos_idx_cent % block_size
                 phys_blocks_cent = block_table[seq, blk_cols_cent]
 
+                if rope_dbg and inv < 24 and seq == 0:
+                    for label, off in (
+                        ("centroid_first", 0),
+                        ("centroid_mid", centroid_fill_len // 2),
+                        ("centroid_last", centroid_fill_len - 1),
+                    ):
+                        if off < 0 or off >= centroid_fill_len:
+                            continue
+                        lp = int(pos_idx_cent[off])
+                        logger.info(
+                            "[CENTROID ROPE] inject#%s seq0 %s logical_pos=%s -> "
+                            "blk_col=%s intra=%s phys_block=%s",
+                            inv,
+                            label,
+                            lp,
+                            int(blk_cols_cent[off]),
+                            int(intras_cent[off]),
+                            int(phys_blocks_cent[off]),
+                        )
+
                 if not int((phys_blocks_cent == null_block_id).any().item()):
                     for layer_idx in range(n_layers):
                         kv_tensor = kv_caches[layer_idx]
@@ -316,6 +461,23 @@ class CentroidInjector:
         elif not getattr(self, "_warned_no_write", False):
             self._warned_no_write = True
             logger.warning("[CENTROID] Did not write any centroid KV")
+
+        if os.environ.get("CENTROID_PERF_DEBUG", "0") == "1":
+            si = int(getattr(self, "_perf_seed_post_i", 0))
+            self._perf_seed_post_i = si + 1
+            if si < 200:
+                rid_row = [req_ids[i] if req_ids is not None else None for i in range(num_reqs)]
+                logger.info(
+                    "[CENTROID PERF] seed_post call=%s wrote_any=%s num_reqs=%s "
+                    "req_ids=%r n_seeded_tracker=%s sys_token_count=%s centroid_len=%s",
+                    si,
+                    wrote_any,
+                    num_reqs,
+                    rid_row,
+                    len(self._centroid_seeded_req_ids),
+                    self.sys_token_count,
+                    self.centroid_len,
+                )
 
     def inject(self, kv_caches, block_tables, num_kv_heads, head_dim, block_size):
         return block_tables
