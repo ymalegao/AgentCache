@@ -173,6 +173,8 @@ class CentroidInjector:
         dev = device or self.K.device
         tgt_dtype = target_dtype or self.K.dtype
         n_q_heads = int(num_query_heads) if num_query_heads is not None else num_kv_heads
+        print(f"n_q_heads: {n_q_heads}, num_kv_heads: {num_kv_heads}, head_dim: {head_dim}")
+
 
         max_centroid_fill = 0
         for seq in range(num_reqs):

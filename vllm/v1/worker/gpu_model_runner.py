@@ -1166,12 +1166,12 @@ class GPUModelRunner(
                 to_update.apply(pooling_params)
 
             eff_num_computed = new_req_data.num_computed_tokens
-            # centroid Path B (scheduler mode): when VLLM_CENTROID_SCHEDULER=1
-            # the scheduler already baked sys_token_count into num_computed_tokens,
-            # so eff_num_computed > 0 and the worker override is redundant.
-            # Suppress it to keep the two modes mutually exclusive.
-            if not self.is_pooling_model and not (
-                centroid_scheduler_mode() and eff_num_computed > 0
+            # Centroid only when VLLM_CENTROID_SCHEDULER=1. If the scheduler
+            # already set num_computed_tokens, skip the legacy worker override.
+            if (
+                not self.is_pooling_model
+                and centroid_scheduler_mode()
+                and eff_num_computed == 0
             ):
                 ensure_centroid_injector_lazy(self)
                 eff_num_computed = centroid_override_num_computed(

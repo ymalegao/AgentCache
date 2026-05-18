@@ -10,13 +10,19 @@ from transformers import (
 )
 from peft import get_peft_model, PrefixTuningConfig, TaskType
 
+# import os
+# os.environ["HF_HOME"] = "/mnt/g/agentcache/hf_cache"
+# # or:
+# os.environ["HF_HUB_CACHE"] = "/mnt/g/agentcache/models"
+
 # Configuration
-MODEL_ID = "/mnt/g/agentcache/models/qwen-1.5b"
+# MODEL_ID = "/mnt/g/agentcache/models/qwen-1.5b"
+MODEL_ID = "/mnt/g/agentcache/models/Llama-3.2-1B-Instruct"
 OUTPUT_DIR = "./agentcache_prefix_model"
-NUM_VIRTUAL_TOKENS = 256  # Keeping it compact to avoid softmax dilution
+NUM_VIRTUAL_TOKENS = 64  # Keeping it compact to avoid softmax dilution
 BATCH_SIZE = 4
-EPOCHS = 3
-LEARNING_RATE = 5e-3 # Prefix tuning requires higher LRs than full finetuning
+EPOCHS = 8
+LEARNING_RATE = 2e-3 # Prefix tuning requires higher LRs than full finetuning
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -55,20 +61,40 @@ def main():
     print("Loading and tokenizing dataset...")
    
    
-    dataset = load_dataset("json", data_files={"train": "good_examples/good_examples.jsonl"})
+    dataset = load_dataset("json", data_files={"train": "good_examples/vllm_good_examples_raw.jsonl"})
    
    
-    def tokenize_function(examples):
+    TRAIN_SYSTEM = (
+        "You are a helpful assistant that can interact with a computer.\n"
+        "Please solve the issue provided by the user. "
+        "You can execute bash commands and edit files to implement the necessary changes.\n\n"
+        "## Recommended Workflow\n"
+        "1. Analyze the codebase by finding and reading relevant files\n"
+        "2. Create a script to reproduce the issue\n"
+        "3. Edit the source code to resolve the issue\n"
+        "4. Verify your fix works by running your script again\n"
+        "5. Test edge cases to ensure your fix is robust."
+    )
 
+    def tokenize_function(examples):
+        # Use Llama's actual chat template so the model sees familiar token patterns
         full_text = [
-            f"Task: {t}\n\nResponse: {g}" 
+            tokenizer.apply_chat_template(
+                [
+                    {"role": "system", "content": TRAIN_SYSTEM},
+                    {"role": "user", "content": t},
+                    {"role": "assistant", "content": g},
+                ],
+                tokenize=False,
+                add_generation_prompt=False,
+            )
             for t, g in zip(examples["task"], examples["good_example"])
         ]
         # We want the model to learn the structural prior of a good response
         return tokenizer(
-            full_text, 
-            truncation=True, 
-            max_length=512, 
+            full_text,
+            truncation=True,
+            max_length=1024,
             padding="max_length"
         )
 
@@ -83,7 +109,7 @@ def main():
         per_device_train_batch_size=BATCH_SIZE,
         num_train_epochs=EPOCHS,
         weight_decay=0.01,
-        logging_steps=10,
+        logging_steps=20,
         save_strategy="epoch",
         fp16=False,
         bf16=True, # Recommended for modern GPUs

@@ -38,18 +38,68 @@ if not prefix_projection:
     raw_prefix = weights["prompt_embeddings.weight"]
     materialized_kv = raw_prefix.view(num_virtual_tokens, num_layers, 2, token_dim)
 else:
-    # Reconstruct via PrefixEncoder MLP to get projected embeddings.
-    from peft import PrefixEncoder, PrefixTuningConfig
-    # PrefixEncoder only builds `transform` when inference_mode=False.
-    materialization_config = dict(config)
-    materialization_config["inference_mode"] = False
-    peft_config = PrefixTuningConfig(**materialization_config)
-    encoder = PrefixEncoder(peft_config)
-    clean_state_dict = {k.replace("base_model.model.", ""): v for k, v in weights.items()}
-    encoder.load_state_dict(clean_state_dict, strict=False)
-    indices = torch.arange(num_virtual_tokens).unsqueeze(0)  # [1, N]
-    materialized_kv = encoder(indices).squeeze(0)            # [N, L * 2 * d]
-    materialized_kv = materialized_kv.view(num_virtual_tokens, num_layers, 2, token_dim)
+    # IMPORTANT:
+    # For prefix_projection=True, the only trustworthy source is PEFT's runtime
+    # get_prompt(), because manual PrefixEncoder reconstruction can drift from
+    # the actual cache format/model wrappers.
+    from peft import PeftModel
+    from transformers import AutoModelForCausalLM
+
+    base_model_path = config.get("base_model_name_or_path")
+    if not base_model_path:
+        raise ValueError(
+            "adapter_config.json missing base_model_name_or_path; cannot export "
+            "projected prefix cache via PeftModel.get_prompt()."
+        )
+
+    base_model = AutoModelForCausalLM.from_pretrained(
+        base_model_path,
+        torch_dtype=torch.float16,
+        device_map="cpu",
+    )
+    peft_model = PeftModel.from_pretrained(base_model, str(adapter_dir))
+    peft_model.eval()
+
+    k_layers = []
+    v_layers = []
+    with torch.no_grad():
+        prompt_cache = peft_model.get_prompt(batch_size=1)
+        if len(prompt_cache) != num_layers:
+            raise ValueError(
+                f"Unexpected prompt cache layers: got {len(prompt_cache)} expected {num_layers}"
+            )
+
+        for layer_idx, layer_cache in enumerate(prompt_cache):
+            if not isinstance(layer_cache, (tuple, list)) or len(layer_cache) < 2:
+                raise ValueError(
+                    f"Unexpected cache object at layer {layer_idx}: {type(layer_cache)}"
+                )
+            k = layer_cache[0][0]  # [num_kv_heads, num_virtual_tokens, head_dim]
+            v = layer_cache[1][0]  # [num_kv_heads, num_virtual_tokens, head_dim]
+
+            k_flat = k.permute(1, 0, 2).contiguous().view(num_virtual_tokens, -1)
+            v_flat = v.permute(1, 0, 2).contiguous().view(num_virtual_tokens, -1)
+            if k_flat.shape[1] != token_dim or v_flat.shape[1] != token_dim:
+                raise ValueError(
+                    "Runtime prompt cache dim mismatch: "
+                    f"K={tuple(k_flat.shape)} V={tuple(v_flat.shape)} token_dim={token_dim}"
+                )
+            k_layers.append(k_flat.detach().cpu().numpy())
+            v_layers.append(v_flat.detach().cpu().numpy())
+
+    learned_K = np.stack(k_layers, axis=0)
+    learned_V = np.stack(v_layers, axis=0)
+    np.save(out_k, learned_K)
+    np.save(out_v, learned_V)
+    sidecar = out_k.with_name("sys_prefix_num_tokens.txt")
+    sidecar.write_text(str(args.sys_tokens))
+
+    print(f"Exported KV tensors with shape: {learned_K.shape}")
+    print(f"  -> {out_k}")
+    print(f"  -> {out_v}")
+    print(f"  -> {sidecar}  (sys_token_count={args.sys_tokens})")
+    print("  exporter: PeftModel.get_prompt() (runtime cache-aligned)")
+    raise SystemExit(0)
 
 # Permute [N, L, 2, d] → [2, L, N, d]; final vLLM shape: [num_layers, num_virtual_tokens, token_dim]
 kv_split = materialized_kv.permute(2, 1, 0, 3)

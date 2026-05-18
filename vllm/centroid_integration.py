@@ -263,7 +263,9 @@ def centroid_paths() -> tuple[str, str]:
 def try_load_centroid_injector(
     device: torch.device, *, log_missing_file: bool = True
 ) -> Any | None:
-    """Return a CentroidInjector if centroid .npy files exist; else None."""
+    """Return a CentroidInjector when centroid mode is on and .npy files exist."""
+    if not centroid_scheduler_mode():
+        return None
     from vllm.centroid_injector import CentroidInjector
 
     k, v = centroid_paths()
@@ -282,6 +284,8 @@ def try_load_centroid_injector(
 
 def ensure_centroid_injector_lazy(runner: Any) -> None:
     """Lazy-load centroid weights if runner has no injector yet (quiet if still missing)."""
+    if not centroid_scheduler_mode():
+        return
     if getattr(runner, "_centroid_injector", None) is not None:
         return
     inj = try_load_centroid_injector(runner.device, log_missing_file=False)
@@ -358,6 +362,8 @@ def apply_centroid_block_table(
     input_batch: Any | None = None,
 ) -> torch.Tensor:
     """Seed centroid K/V into KV cache for the warm-start prefix. Leaves block_table unchanged."""
+    if not centroid_scheduler_mode():
+        return block_table
     inj = getattr(runner, "_centroid_injector", None)
     if inj is None:
         return block_table
@@ -449,7 +455,7 @@ def apply_centroid_block_table(
         block_size=block_size,
         null_block_id=NULL_BLOCK_ID,
         rotary_emb=try_get_rotary_emb_cached(runner),
-        num_query_heads=int(getattr(runner, "num_query_heads", num_kv)),
+        num_query_heads=int(getattr(runner, "num_query_heads", 32)),
         target_dtype=getattr(runner, "dtype", None),
         device=getattr(runner, "device", None),
         req_ids=req_id_list,
