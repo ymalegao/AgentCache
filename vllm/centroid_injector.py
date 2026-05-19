@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -159,6 +160,10 @@ class CentroidInjector:
         device: torch.device | None = None,
         req_ids: list[str] | None = None,
     ) -> None:
+        perf_dbg = os.environ.get("CENTROID_PERF_DEBUG", "0") == "1"
+        t_seed_start = time.perf_counter() if perf_dbg else None
+        rope_cache_hit = False
+
         if rotary_emb is None:
             logger.warning("CentroidInjector: rotary_emb is None — injecting unrotated K")
 
@@ -173,8 +178,6 @@ class CentroidInjector:
         dev = device or self.K.device
         tgt_dtype = target_dtype or self.K.dtype
         n_q_heads = int(num_query_heads) if num_query_heads is not None else num_kv_heads
-        print(f"n_q_heads: {n_q_heads}, num_kv_heads: {num_kv_heads}, head_dim: {head_dim}")
-
 
         max_centroid_fill = 0
         for seq in range(num_reqs):
@@ -184,9 +187,11 @@ class CentroidInjector:
 
         k_rotated_max: torch.Tensor | None = None
         if max_centroid_fill > 0 and rotary_emb is not None:
+            #k_rotated_max = self.K[:, :max_centroid_fill, :].view(n_layers, max_centroid_fill, num_kv_heads, head_dim)
             cache_key = (max_centroid_fill, dev, tgt_dtype, n_q_heads, num_kv_heads, head_dim, id(rotary_emb))
             if self._rope_k_cache_key == cache_key and self._rope_k_cache_tensor is not None:
                 k_rotated_max = self._rope_k_cache_tensor
+                rope_cache_hit = True
             else:
                 # RoPE positions for centroid are sys_token_count .. sys_token_count + max_centroid_fill - 1
                 all_pos = self.sys_token_count + torch.arange(max_centroid_fill, device=dev, dtype=torch.long)
@@ -469,9 +474,15 @@ class CentroidInjector:
             self._perf_seed_post_i = si + 1
             if si < 200:
                 rid_row = [req_ids[i] if req_ids is not None else None for i in range(num_reqs)]
+                seed_wall_ms = (
+                    (time.perf_counter() - t_seed_start) * 1000.0
+                    if t_seed_start is not None
+                    else None
+                )
                 logger.info(
                     "[CENTROID PERF] seed_post call=%s wrote_any=%s num_reqs=%s "
-                    "req_ids=%r n_seeded_tracker=%s sys_token_count=%s centroid_len=%s",
+                    "req_ids=%r n_seeded_tracker=%s sys_token_count=%s centroid_len=%s "
+                    "max_centroid_fill=%s rope_cache_hit=%s seed_wall_ms=%.3f",
                     si,
                     wrote_any,
                     num_reqs,
@@ -479,7 +490,35 @@ class CentroidInjector:
                     len(self._centroid_seeded_req_ids),
                     self.sys_token_count,
                     self.centroid_len,
+                    max_centroid_fill,
+                    rope_cache_hit,
+                    (seed_wall_ms if seed_wall_ms is not None else -1.0),
                 )
+                if wrote_any and si < 64 and num_reqs > 0:
+                    prompt0 = int(prompt_lens_np[0])
+                    cent_fill0 = min(self.centroid_len, max(0, prompt0 - self.sys_token_count))
+                    if cent_fill0 > 0:
+                        pos0 = self.sys_token_count
+                        pos1 = self.sys_token_count + cent_fill0 - 1
+                        blk0 = int((pos0 // block_size))
+                        blk1 = int((pos1 // block_size))
+                        pb0 = int(block_table[0, blk0].item())
+                        pb1 = int(block_table[0, blk1].item())
+                        i0 = int(pos0 % block_size)
+                        i1 = int(pos1 % block_size)
+                        logger.info(
+                            "[CENTROID PERF] seed_slots call=%s seq0 logical_pos=%s..%s "
+                            "block_cols=%s..%s phys_blocks=%s..%s intras=%s..%s",
+                            si,
+                            pos0,
+                            pos1,
+                            blk0,
+                            blk1,
+                            pb0,
+                            pb1,
+                            i0,
+                            i1,
+                        )
 
     def inject(self, kv_caches, block_tables, num_kv_heads, head_dim, block_size):
         return block_tables

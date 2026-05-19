@@ -416,10 +416,22 @@ def apply_centroid_block_table(
         _centroid_perf_dbg_apply_calls[0] = idx + 1
         if idx < 200:
             n_sched_pf = None
+            pos_range = None
+            expected_start = None
             try:
                 qsl = getattr(runner, "query_start_loc", None)
                 if qsl is not None and num_reqs > 0:
                     n_sched_pf = int(qsl.gpu[num_reqs].item())
+                    positions = getattr(runner, "positions", None)
+                    if positions is not None and n_sched_pf > 0:
+                        pos_flat = positions[:n_sched_pf]
+                        pos_min = int(pos_flat.min().item())
+                        pos_max = int(pos_flat.max().item())
+                        pos_range = (pos_min, pos_max)
+                        # For prompt prefill this should match:
+                        # expected_start = prompt_len - n_scheduled_tokens.
+                        # With centroid gap=256 and prompt_len=1005 -> 256.
+                        expected_start = int(prompt_lens_np[0]) - int(n_sched_pf)
             except Exception:
                 pass
             seeded = getattr(inj, "_centroid_seeded_req_ids", set())
@@ -437,6 +449,18 @@ def apply_centroid_block_table(
                 pre_skip,
                 pl0,
             )
+            if idx < 64:
+                logger.info(
+                    "[CENTROID PERF] apply_pos call=%s positions_minmax=%s expected_start=%s "
+                    "start_matches=%s",
+                    idx,
+                    pos_range,
+                    expected_start,
+                    (
+                        bool(pos_range is not None and expected_start is not None
+                             and pos_range[0] == expected_start)
+                    ),
+                )
 
     timing = os.environ.get("CENTROID_TIMING", "0")
     t0 = None
@@ -455,7 +479,7 @@ def apply_centroid_block_table(
         block_size=block_size,
         null_block_id=NULL_BLOCK_ID,
         rotary_emb=try_get_rotary_emb_cached(runner),
-        num_query_heads=int(getattr(runner, "num_query_heads", 32)),
+        num_query_heads=int(getattr(runner, "num_query_heads", num_kv)),
         target_dtype=getattr(runner, "dtype", None),
         device=getattr(runner, "device", None),
         req_ids=req_id_list,
