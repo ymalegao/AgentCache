@@ -130,6 +130,26 @@ def _maybe_log_runner_rope_context(
     except Exception:
         logger.exception("[CENTROID ROPE] runner_ctx#%s failed to collect runner context", call)
 
+# ---------- Layout mode ----------
+_centroid_layout_cached: str | None = None
+
+
+def centroid_layout() -> str:
+    """Return the active centroid layout mode (marker only — no vLLM behaviour changes).
+
+    ``VLLM_CENTROID_LAYOUT=compression``: the test harness prepends ``centroid_len``
+    pad tokens to the user prompt so the gap mechanism allocates N+M KV blocks and
+    schedules only the M real user tokens.  The scheduler gap is NOT suppressed.
+
+    Default is ``"replacement"`` (original behaviour, system+user prompt).
+    """
+    global _centroid_layout_cached
+    if _centroid_layout_cached is None:
+        _centroid_layout_cached = os.environ.get("VLLM_CENTROID_LAYOUT", "replacement")
+        logger.info("[CENTROID] layout=%s", _centroid_layout_cached)
+    return _centroid_layout_cached
+
+
 # ---------- Scheduler-side centroid gap (Path B) ----------
 # These are module-level caches so the gate + sys-count resolution runs once
 # per process, not on every schedule() call.

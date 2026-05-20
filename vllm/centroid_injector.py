@@ -96,6 +96,7 @@ class CentroidInjector:
                 self.sys_V = torch.tensor(sys_v_np, dtype=torch.float16, device=device)
                 logger.info("Loaded exact system prefix from %s", sys_k_path)
 
+        self.layout = os.environ.get("VLLM_CENTROID_LAYOUT", "replacement")
         self._centroid_seeded_req_ids: set[str] = set()
         self._rope_k_cache_key: tuple[Any, ...] | None = None
         self._rope_k_cache_tensor: torch.Tensor | None = None
@@ -104,8 +105,8 @@ class CentroidInjector:
         self._sink_v_template: torch.Tensor | None = None
         self._rope_sink_k_cache_tensor: torch.Tensor | None = None
         logger.info(
-            "CentroidInjector: sys_token_count=%s, centroid_len=%s, use_lmcache=%s, sink_blend=%.2f",
-            self.sys_token_count, self.centroid_len, self.use_lmcache, self.sink_blend
+            "CentroidInjector: layout=%s sys_token_count=%s centroid_len=%s use_lmcache=%s sink_blend=%.2f",
+            self.layout, self.sys_token_count, self.centroid_len, self.use_lmcache, self.sink_blend
         )
         if self.sys_K is not None and self.sys_V is not None and self.sys_K.shape[1] > 0:
             # A structural sink template avoids displacing the model's native sink

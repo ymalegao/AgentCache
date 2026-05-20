@@ -13,7 +13,45 @@ We have moved away from **Unsupervised Hidden State Averaging**, which failed du
 
 ---
 
-## 2. Architecture Overview
+## 2. Quick Start
+
+```bash
+# 1. Install dependencies and patch vLLM
+./install.sh
+source venv/bin/activate
+
+# 2. Download the base model (gated models require: huggingface-cli login)
+./get_model.sh meta-llama/Llama-3.2-1B-Instruct
+# model saved to models/Llama-3.2-1B-Instruct/
+
+# 3. Run the full pipeline: train → export centroids → test injection
+python run_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64
+# Results written to results/N64_comparison.jsonl
+```
+
+### Resume from a checkpoint
+```bash
+# Skip training (adapter already trained):
+python run_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64 --skip-train
+
+# Skip training + transpose (centroids already exported):
+python run_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64 --skip-train --skip-transpose
+
+# Run all three test modes for comparison:
+python run_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64 --test-modes all
+```
+
+### Output paths (relative to repo root)
+| Artifact | Path |
+|----------|------|
+| Trained adapter | `adapters/N{tokens}/` |
+| Centroid tensors | `centroids/N{tokens}_K.npy`, `centroids/N{tokens}_V.npy` |
+| Eval results | `results/N{tokens}_comparison.jsonl` |
+| Downloaded model | `models/<model-name>/` |
+
+---
+
+## 3. Architecture Overview
 
 ### Phase A: Offline Learning (PEFT Training)
 
@@ -43,7 +81,7 @@ We have modified the vLLM core to support a custom `CentroidInjector` and schedu
 
 ---
 
-## 3. Deployment Configuration
+## 4. Deployment Configuration
 
 ### Environment Variables
 
@@ -59,7 +97,7 @@ We have modified the vLLM core to support a custom `CentroidInjector` and schedu
 
 ---
 
-## 4. Current Status
+## 5. Current Status
 
 * [x] **vLLM Infrastructure:** `CentroidInjector` and Scheduler Hooks implemented.
 * [x] **Mathematical Pivot:** Defined the requirement for gradient-based tuning to solve OOD noise.
