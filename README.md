@@ -20,13 +20,13 @@ We have moved away from **Unsupervised Hidden State Averaging**, which failed du
 ./install.sh
 source venv/bin/activate
 
-# 2. Download the base model (gated models require: huggingface-cli login)
+# 2. Download the base model (gated models require: hf login)
 ./get_model.sh meta-llama/Llama-3.2-1B-Instruct
 # model saved to models/Llama-3.2-1B-Instruct/
 
 # 3. Run the full pipeline: train → export centroids → test injection
 python run_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64
-# Results written to results/N64_comparison.jsonl
+# Results written to agentcache_compression/results/N64_comparison.jsonl
 ```
 
 ### Resume from a checkpoint
@@ -44,9 +44,9 @@ python run_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64 --test-m
 ### Output paths (relative to repo root)
 | Artifact | Path |
 |----------|------|
-| Trained adapter | `adapters/N{tokens}/` |
-| Centroid tensors | `centroids/N{tokens}_K.npy`, `centroids/N{tokens}_V.npy` |
-| Eval results | `results/N{tokens}_comparison.jsonl` |
+| Trained adapter | `agentcache_compression/adapters/N{tokens}/` |
+| Centroid tensors | `agentcache_compression/centroids/N{tokens}_K.npy`, `..._V.npy` |
+| Eval results | `agentcache_compression/results/N{tokens}_comparison.jsonl` |
 | Downloaded model | `models/<model-name>/` |
 
 ---
@@ -105,6 +105,69 @@ We have modified the vLLM core to support a custom `CentroidInjector` and schedu
 * [x] **Step 2:** Materialize tensors using the `safetensors` extraction script.
 * [x] **Step 3:** Perform A/B benchmarking comparing TTFT and generation quality between Cold Start, APC, and Centroid Injection.
 
+---
+
+## 6. Empirical Results (Llama-3.2-1B-Instruct)
+
+### TTFT by prompt length (N=128 virtual tokens)
+
+| Context length | Mode | Physical tokens | TTFT | Speedup vs cold |
+|---|---|---|---|---|
+| ~200 tokens | cold_no_synthetic | ~276 | 20.8ms | — |
+| ~200 tokens | synthetic_compression | ~184 | 18.7ms | 1.1x |
+| ~1000 tokens | cold_no_synthetic | ~1092 | 47.8ms | — |
+| ~1000 tokens | synthetic_compression | ~184 | 17.0ms | **2.8x** |
+
+**Key finding:** TTFT delta between cold and synthetic is negligible (~2ms) at 200-token contexts because fixed overhead dominates. At 1000 tokens, prefill becomes the bottleneck and the speedup reaches 2.8x. The synthetic TTFT stays flat (~17ms) regardless of original context length because physical tokens sent is always N_virtual + user_query.
+
+### N_virtual sweep (200-token context)
+
+| N_virtual | Physical tokens | TTFT | task_pass |
+|---|---|---|---|
+| 64 | ~120 | ~17.8ms | 80% |
+| 128 | ~184 | ~18.7ms | 84% |
+
+Quality is similar at N=64 and N=128; larger N gives no quality gain at this context length. N_virtual should **not** scale with context length — the speedup comes from keeping N_virtual small and fixed.
+
+### Behavioral instruction encoding (GOODBYE signal)
+
+The system prompt ends with `Always end the final response with the exact token: GOODBYE`. Observed compliance rates:
+
+| Mode | GOODBYE rate |
+|---|---|
+| cold_no_synthetic | 0% (all experiments) |
+| warm_apc | 0% |
+| synthetic_compression N=64 | 12% |
+| synthetic_compression N=128 | 24% |
+
+Cold and warm_apc both fail despite having the full system prompt in context. The virtual tokens encode the GOODBYE behavioral instruction more densely than the raw text does — on a 1B model, the instruction is diluted in a 1000-token context but occupies a large fraction of a 128-token compressed representation. This is evidence that the adapter captures behavioral signals, not just semantic content.
+
+**Note:** This effect is expected to diminish on a 7B+ model, where instruction following in long contexts is more reliable. Cold would produce GOODBYE more consistently, narrowing the delta between cold and synthetic. The TTFT speedup remains the primary metric regardless of model size.
+
+---
+
+## 7. Experiments to Run Next
+
+### Priority 1 — Token count × context length grid
+
+Run synthetic_compression and cold_no_synthetic (no APC needed) across this grid on Llama-3.2-1B-Instruct:
+
+```
+N_virtual    ∈ {32, 64, 128, 256}
+context_len  ∈ {200, 500, 1000, 2000}
+```
+
+Goal: find the quality floor (minimum N_virtual where task_pass stays acceptable) and confirm it does not depend on context length. Beyond N=256 the TTFT speedup drops below 2x and is not worth testing.
+
+Expected: task_pass degrades as N_virtual shrinks; the speedup curve follows roughly `cold_ttft / synth_ttft ≈ context_len / (N_virtual + overhead)`.
+
+### Priority 2 — Repeat Priority 1 on a 7B model
+
+Same grid on Qwen-2.5-7B-Instruct or Llama-3.1-8B-Instruct. Two things change at 7B:
+- Prefill cost per token is higher → absolute TTFT savings are larger
+- Instruction following in long contexts is stronger → cold GOODBYE compliance improves, narrowing the behavioral encoding delta
+
+The quality floor (minimum viable N_virtual) may also shift because 7B has more representational capacity per virtual token.
 
 
 ## Next Steps

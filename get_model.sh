@@ -1,6 +1,6 @@
 #!/bin/bash
 # Download a HuggingFace model into models/<name>/.
-# Gated models (e.g. Llama) require: huggingface-cli login
+# Gated models (e.g. Llama) require: hf login
 set -e
 
 MODEL=${1:-"meta-llama/Llama-3.2-1B-Instruct"}
@@ -10,7 +10,7 @@ mkdir -p "$DEST"
 source venv/bin/activate
 
 echo "Downloading $MODEL -> $DEST"
-huggingface-cli download "$MODEL" --local-dir "$DEST"
+hf download "$MODEL" --local-dir "$DEST"
 
 echo ""
 echo "Model saved to: $(pwd)/$DEST"

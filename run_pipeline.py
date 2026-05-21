@@ -17,11 +17,11 @@ import argparse
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent
-EXP = REPO / "experiments" / "agentcache_compression"
+REPO = Path(__file__).resolve().parent  # agentcache/
+EXP = REPO / "agentcache_compression"
 
 TRAIN_SCRIPT = EXP / "train_prefix_compression.py"
-TRANSPOSE_SCRIPT = REPO / "experiment_logs" / "baseline_state" / "transpose_tensors.py"
+TRANSPOSE_SCRIPT = EXP / "transpose_tensors.py"
 TEST_SCRIPT = EXP / "test_compression.py"
 
 TEST_MODES = ["cold_no_synthetic", "warm_apc", "synthetic_compression"]
@@ -50,19 +50,19 @@ def main():
 
     # Input overrides (all have sensible defaults)
     parser.add_argument("--data", default=str(EXP / "data" / "python_agent_train.jsonl"),
-                        help="Training JSONL (default: experiments/.../python_agent_train.jsonl)")
+                        help="Training JSONL (default: agentcache_compression/data/python_agent_train.jsonl)")
     parser.add_argument("--eval-data", default=str(EXP / "data" / "python_agent_eval.jsonl"),
-                        help="Eval JSONL (default: experiments/.../python_agent_eval.jsonl)")
+                        help="Eval JSONL (default: agentcache_compression/data/python_agent_eval.jsonl)")
     parser.add_argument("--system-prompt", default=str(EXP / "prompts" / "python_agent_system.txt"),
                         help="System prompt .txt file")
 
     # Output overrides
     parser.add_argument("--adapter-out", default=None,
-                        help="Adapter save dir (default: adapters/N{tokens}/)")
+                        help="Adapter save dir (default: agentcache_compression/adapters/N{tokens}/)")
     parser.add_argument("--centroid-dir", default=None,
-                        help="Centroid output dir (default: centroids/)")
+                        help="Centroid output dir (default: agentcache_compression/centroids/)")
     parser.add_argument("--results-out", default=None,
-                        help="Results JSONL path (default: results/N{tokens}_comparison.jsonl)")
+                        help="Results JSONL path (default: agentcache_compression/results/N{tokens}_comparison.jsonl)")
 
     # Training hyperparameters
     parser.add_argument("--epochs", type=int, default=8)
@@ -86,12 +86,12 @@ def main():
     args = parser.parse_args()
     N = args.tokens
 
-    # Resolve output paths
-    adapter_out = Path(args.adapter_out) if args.adapter_out else REPO / "adapters" / f"N{N}"
-    centroid_dir = Path(args.centroid_dir) if args.centroid_dir else REPO / "centroids"
+    # Resolve output paths (under agentcache_compression/ by default)
+    adapter_out = Path(args.adapter_out) if args.adapter_out else EXP / "adapters" / f"N{N}"
+    centroid_dir = Path(args.centroid_dir) if args.centroid_dir else EXP / "centroids"
     centroid_k = centroid_dir / f"N{N}_K.npy"
     centroid_v = centroid_dir / f"N{N}_V.npy"
-    results_out = Path(args.results_out) if args.results_out else REPO / "results" / f"N{N}_comparison.jsonl"
+    results_out = Path(args.results_out) if args.results_out else EXP / "results" / f"N{N}_comparison.jsonl"
 
     # Resolve test modes
     if args.test_modes == "all":
