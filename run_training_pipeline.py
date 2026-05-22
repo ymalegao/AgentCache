@@ -53,7 +53,7 @@ def main():
                         help="Training JSONL (default: agentcache_compression/data/python_agent_train.jsonl)")
     parser.add_argument("--eval-data", default=str(EXP / "data" / "python_agent_eval.jsonl"),
                         help="Eval JSONL (default: agentcache_compression/data/python_agent_eval.jsonl)")
-    parser.add_argument("--system-prompt", default=str(EXP / "prompts" / "python_agent_system.txt"),
+    parser.add_argument("--system-prompt", default=str(EXP / "prompts" / "2000_python_agent_system.txt"),
                         help="System prompt .txt file")
 
     # Output overrides

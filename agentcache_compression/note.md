@@ -25,14 +25,14 @@ while keeping coherent output.
 
 | File | Purpose |
 |------|---------|
-| `experiments/agentcache_compression/prompts/python_agent_system.txt` | System prompt with GOODBYE rule used for training |
-| `experiments/agentcache_compression/prepare_data.py` | One-shot script: filter + split vllm_good_examples_raw.jsonl |
-| `experiments/agentcache_compression/data/python_agent_train.jsonl` | 118 Python train examples (GOODBYE appended to teacher_output) |
-| `experiments/agentcache_compression/data/python_agent_eval.jsonl` | 25 held-out Python eval examples with must_include_any checks |
-| `experiments/agentcache_compression/train_prefix_compression.py` | New training script: CLI args + proper label masking |
-| `experiments/agentcache_compression/adapters/N64_sys0/` | Trained N=64 adapter (8 epochs, final loss ~0.64, train_loss 0.90) |
-| `experiments/agentcache_compression/centroids/N64_K.npy` | Exported centroid K, shape [16, 64, 512] |
-| `experiments/agentcache_compression/centroids/N64_V.npy` | Exported centroid V, shape [16, 64, 512] |
+| `agentcache_compression/prompts/python_agent_system.txt` | System prompt with GOODBYE rule used for training |
+| `agentcache_compression/prepare_data.py` | One-shot script: filter + split vllm_good_examples_raw.jsonl |
+| `agentcache_compression/data/python_agent_train.jsonl` | 118 Python train examples (GOODBYE appended to teacher_output) |
+| `agentcache_compression/data/python_agent_eval.jsonl` | 25 held-out Python eval examples with must_include_any checks |
+| `agentcache_compression/train_prefix_compression.py` | New training script: CLI args + proper label masking |
+| `agentcache_compression/adapters/N64_sys0/` | Trained N=64 adapter (8 epochs, final loss ~0.64, train_loss 0.90) |
+| `agentcache_compression/centroids/N64_K.npy` | Exported centroid K, shape [16, 64, 512] |
+| `agentcache_compression/centroids/N64_V.npy` | Exported centroid V, shape [16, 64, 512] |
 
 **Data stats:** 175 raw → 143 Python-only (32 excluded as bash/Node.js) → 118 train / 25 eval.
 
@@ -99,16 +99,16 @@ New script will mask system+user tokens (-100) and compute loss on assistant tok
    (confirms gap is active) and `positions_minmax=(64, 64+M-1)` in CENTROID_PERF_DEBUG.
 
 6. ~~**Phase 8 — test_compression.py**~~ ✅ (2026-05-19)
-   `experiments/agentcache_compression/test_compression.py`
+   `agentcache_compression/test_compression.py`
    Three modes: `cold_no_synthetic` · `warm_apc` · `synthetic_compression`
    All args have defaults; only `--mode` is required.
    ```bash
-   python experiments/agentcache_compression/test_compression.py --mode synthetic_compression
+   python agentcache_compression/test_compression.py --mode synthetic_compression
    ```
-   Output JSONL: `results/N64_comparison.jsonl` (appended per mode run).
+   Output JSONL: `agentcache_compression/results/N64_comparison.jsonl` (appended per mode run).
 
 7. ~~**Phase 9 — eval run on 25 tasks**~~ ✅ (2026-05-20, partial — warm_apc may be incomplete)
-   Results in `results/N64_comparison.jsonl`. Summary:
+   Results in `agentcache_compression/results/N64_comparison.jsonl`. Summary:
 
    | Mode | N tasks | Mean TTFT (s) | Coherent | GOODBYE | Task-check pass |
    |------|---------|--------------|----------|---------|----------------|
@@ -130,7 +130,7 @@ New script will mask system+user tokens (-100) and compute loss on assistant tok
      compression mode, within noise for 25 samples.
 
 8. **Phase 5b — N=256 adapter** (train after N=64 results look good)
-   Same command, --num-virtual-tokens 256 --output adapters/N256_sys0
+   Same command, --num-virtual-tokens 256 --output agentcache_compression/adapters/N256_sys0
 
 ---
 
@@ -153,22 +153,3 @@ New script will mask system+user tokens (-100) and compute loss on assistant tok
 5. **Phase 5b — N=256 adapter** — if/when short-prompt TTFT is validated.
 
 ---
-
-## Open questions / things to watch
-
-- `infer_checks()` in prepare_data.py is heuristic — some eval entries may get only the
-  fallback check `["def ", "import ", "class "]`. Worth reviewing.
-- No MAX_LEN: dynamic padding per batch. All 118/118 training examples have GOODBYE.
-  Longest sequence is 1420 tokens — fine for 1B model, watch VRAM if scaling up.
-- N=256 adapter requires 256 prefill positions skipped → physical prompt must be >256 tokens.
-  Short user queries (~40 tokens) won't benefit from N=256. Worth noting in results.
-
-### Phase 7 open questions — all resolved ✅
-
-All four questions had the same root cause: the first Phase 7 implementation only
-offset RoPE positions but left slot mapping and seq_len unchanged, so user KV
-overwrote the centroid and attention saw the wrong context length.
-
-**Resolution:** use `[pad]*N + user_chat_ids` as the prompt. The gap mechanism
-(gap=N) handles all four properties correctly — no vLLM code changes needed.
-The corrected Phase 7 + Phase 8 test harness implement this.
