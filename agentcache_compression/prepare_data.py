@@ -5,7 +5,7 @@ split into train (~150) and eval (~25), write to data/.
 Train format:  {"id": "ex_{index}", "user": task, "teacher_output": good_example}
 Eval format:   {"id": "...", "user": task, "checks": {"must_include_any": [[...]]}}
 
-Run: python experiments/agentcache_compression/prepare_data.py
+Run (from repo root): python agentcache_compression/prepare_data.py
 
 Optional (behavioral probe, off by default):
   --append-goodbye
@@ -22,9 +22,14 @@ from pathlib import Path
 
 SEED = 42
 EVAL_SIZE = 25
-SRC = Path("../good_examples/vllm_good_examples_raw.jsonl")
-TRAIN_OUT = Path("experiments/agentcache_compression/data/python_agent_train.jsonl")
-EVAL_OUT = Path("experiments/agentcache_compression/data/python_agent_eval.jsonl")
+
+# Resolve paths relative to this file (not the current working directory),
+# so outputs line up with run_training_pipeline.py defaults.
+_HERE = Path(__file__).resolve().parent          # .../agentcache_compression
+_REPO = _HERE.parent                             # .../agentcache
+SRC = _REPO / "good_examples" / "vllm_good_examples_raw.jsonl"
+TRAIN_OUT = _HERE / "data" / "python_agent_train.jsonl"
+EVAL_OUT = _HERE / "data" / "python_agent_eval.jsonl"
 
 PYTHON_SIGNALS = [
     r"\bpython\b", r"\bdef \b", r"\bimport \b", r"\bclass \b",

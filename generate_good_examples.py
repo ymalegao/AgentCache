@@ -1,29 +1,37 @@
 import json
 import os
+import argparse
+from pathlib import Path
 
 # Plain vLLM — no centroid load/inject (used to collect training targets).
 os.environ["VLLM_CENTROID_SCHEDULER"] = "0"
 os.environ.setdefault("HF_HOME", "/mnt/g/agentcache/hf_cache")
 
-from transformers import AutoTokenizer
-from vllm import LLM, SamplingParams
-
-MODEL_ID =  '/mnt/g/agentcache/models/Llama-3.2-1B-Instruct'
-MAX_TOKENS = 2048
-TEMPERATURE = 0.9
+DEFAULT_MODEL_ID = "/mnt/g/agentcache/models/Llama-3.2-1B-Instruct"
+DEFAULT_SYSTEM_PROMPT = "agentcache_compression/prompts/2000_python_agent_system.txt"
+DEFAULT_MAX_TOKENS = 2048
+DEFAULT_TEMPERATURE = 0.9
 
 
 def generate_good_example():
-    SYSTEM_PROMPT = """You are a helpful assistant that can interact with a computer.
+    ap = argparse.ArgumentParser(description="Generate good_examples/vllm_good_examples_raw.jsonl via vLLM.")
+    ap.add_argument("--model", default=DEFAULT_MODEL_ID, help="Model path or HF id.")
+    ap.add_argument("--system-prompt", default=DEFAULT_SYSTEM_PROMPT, help="System prompt .txt path.")
+    ap.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS, help="Max new tokens per example.")
+    ap.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE, help="Sampling temperature.")
+    ap.add_argument(
+        "--ensure-goodbye",
+        action="store_true",
+        help="Append '\\nGOODBYE' only if the model output didn't end with exact token GOODBYE.",
+    )
+    args = ap.parse_args()
 
-    Please solve the issue provided by the user. You can execute bash commands and edit files to implement the necessary changes.
+    system_prompt_path = Path(args.system_prompt)
+    system_prompt = system_prompt_path.read_text().strip()
 
-    ## Recommended Workflow
-    1. Analyze the codebase by finding and reading relevant files
-    2. Create a script to reproduce the issue
-    3. Edit the source code to resolve the issue
-    4. Verify your fix works by running your script again
-    5. Test edge cases to ensure your fix is robust"""
+    # Heavy deps: import after arg parsing so `--help` works without the venv.
+    from transformers import AutoTokenizer
+    from vllm import LLM, SamplingParams
 
     # with open("tasks.json", "r") as f:
     #     tasks_data = json.load(f)
@@ -243,7 +251,7 @@ def generate_good_example():
     OUTPUT_DIR = "good_examples"
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    output_path = os.path.join(OUTPUT_DIR, "vllm_good_examples_raw.jsonl")
+    output_path = os.path.join(OUTPUT_DIR, "vllm_good_examples_raw_2000.jsonl")
 
     existing_data = []
     task_to_index = {}
@@ -275,14 +283,14 @@ def generate_good_example():
         print("Nothing to generate.")
         return
 
-    print(f"Loading model with vLLM: {MODEL_ID}")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+    print(f"Loading model with vLLM: {args.model}")
+    tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
     llm = LLM(
-        model=MODEL_ID,
+        model=args.model,
         gpu_memory_utilization=0.85,
         trust_remote_code=True,
     )
-    sampling_params = SamplingParams(temperature=TEMPERATURE, max_tokens=MAX_TOKENS)
+    sampling_params = SamplingParams(temperature=args.temperature, max_tokens=args.max_tokens)
 
     for i, task in enumerate(TASKS):
         rec_idx = task_to_index[task]
@@ -292,7 +300,7 @@ def generate_good_example():
 
         prompt = tokenizer.apply_chat_template(
             [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": task},
             ],
             tokenize=False,
@@ -301,6 +309,8 @@ def generate_good_example():
 
         outputs = llm.generate([prompt], sampling_params)
         good_example = outputs[0].outputs[0].text.strip()
+        if args.ensure_goodbye and not good_example.rstrip().endswith("GOODBYE"):
+            good_example = good_example.rstrip() + "\nGOODBYE"
         record["index"] = i
         record["good_example"] = good_example
         existing_data[rec_idx] = record
