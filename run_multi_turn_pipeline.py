@@ -53,7 +53,7 @@ def main():
                              "When set, --n-conversations and --turns-per-conv are ignored.")
     parser.add_argument("--n-conversations", type=int,   default=5)
     parser.add_argument("--turns-per-conv",  type=int,   default=5)
-    parser.add_argument("--max-tokens",      type=int,   default=2000)
+    parser.add_argument("--max-tokens",      type=int,   default=2048)
     parser.add_argument("--gpu-mem",         type=float, default=0.6)
     args = parser.parse_args()
 

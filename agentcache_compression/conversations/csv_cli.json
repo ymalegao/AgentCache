@@ -1,0 +1,12 @@
+[
+  "Write a Python CLI script using argparse that reads a CSV file passed as a positional argument, then prints a summary of each column: its name, dtype, number of nulls, and for numeric columns the mean and std. Name the main entry point function run().",
+  "Add a --filter flag that accepts a string like 'column_name=regex' and keeps only rows where that column matches the regex. If the column doesn't exist, print a clear error and exit.",
+  "Add a --output flag. When provided, write the filtered CSV to that path instead of printing the summary to stdout. If no --filter is given and --output is set, write the full dataset.",
+  "Refactor the summary logic into a standalone summarize(df) function that returns a list of dicts (one per column) instead of printing directly. Update run() to call it and print the results.",
+  "Add input validation at the top of run(): error clearly if the file path doesn't exist, if the file isn't readable, or if pandas raises a ParserError on load. Use sys.exit(1) on failure.",
+  "Add a --sample N flag (integer) that limits processing to the first N rows. It should apply before filtering so --filter operates on the sampled data.",
+  "Add a --verbose flag. When set, use Python's logging module at DEBUG level to log each row's index as it passes the filter. When not set, logging should be silent.",
+  "Write pytest unit tests for the summarize() function. Cover: empty DataFrame, all-null column, mixed numeric and string columns, and a column with no nulls. Use pytest.mark.parametrize.",
+  "Add a --schema flag that accepts a path to a JSON file mapping column names to expected dtypes (e.g. {\"age\": \"int64\", \"name\": \"object\"}). After loading the CSV, validate actual dtypes against the schema and print a warning for each mismatch.",
+  "Add a pyproject.toml that installs the package as a console script entry point named csv-summary pointing to the run() function. Include the dependencies: pandas, pytest."
+]

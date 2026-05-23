@@ -2,20 +2,27 @@
 Filter good_examples/vllm_good_examples_raw.jsonl to Python-only tasks,
 split into train (~150) and eval (~25), write to data/.
 
-Train format:  {"id": "ex_{index}", "user": task, "teacher_output": good_example + "\nGOODBYE"}
-Eval format:   {"id": "...", "user": task, "checks": {"must_include_any": [[...]], "must_end_with": "GOODBYE"}}
+Train format:  {"id": "ex_{index}", "user": task, "teacher_output": good_example}
+Eval format:   {"id": "...", "user": task, "checks": {"must_include_any": [[...]]}}
 
 Run: python experiments/agentcache_compression/prepare_data.py
+
+Optional (behavioral probe, off by default):
+  --append-goodbye
+    Appends "\nGOODBYE" to *every* teacher output and adds a must_end_with=GOODBYE
+    eval check. This is useful as a simple probe, but it also makes "GOODBYE rate"
+    non-independent because the suffix is present in all training labels.
 """
 
 import json
 import re
 import random
+import argparse
 from pathlib import Path
 
 SEED = 42
 EVAL_SIZE = 25
-SRC = Path("good_examples/vllm_good_examples_raw.jsonl")
+SRC = Path("../good_examples/vllm_good_examples_raw.jsonl")
 TRAIN_OUT = Path("experiments/agentcache_compression/data/python_agent_train.jsonl")
 EVAL_OUT = Path("experiments/agentcache_compression/data/python_agent_eval.jsonl")
 
@@ -43,10 +50,12 @@ def is_python_task(entry: dict) -> bool:
     return bool(PYTHON_RE.search(text))
 
 
-def infer_checks(task: str) -> dict:
+def infer_checks(task: str, require_goodbye: bool) -> dict:
     """Produce simple must_include_any checks from task text."""
     task_l = task.lower()
-    checks: dict = {"must_end_with": "GOODBYE"}
+    checks: dict = {}
+    if require_goodbye:
+        checks["must_end_with"] = "GOODBYE"
 
     keywords: list[list[str]] = []
 
@@ -82,6 +91,14 @@ def infer_checks(task: str) -> dict:
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--append-goodbye",
+        action="store_true",
+        help="Append '\\nGOODBYE' to every training label and require it in eval checks.",
+    )
+    args = ap.parse_args()
+
     random.seed(SEED)
 
     raw = []
@@ -103,7 +120,9 @@ def main():
     TRAIN_OUT.parent.mkdir(parents=True, exist_ok=True)
     with open(TRAIN_OUT, "w") as f:
         for e in train_entries:
-            teacher_output = e["good_example"].rstrip() + "\nGOODBYE"
+            teacher_output = e["good_example"].rstrip()
+            if args.append_goodbye:
+                teacher_output = teacher_output + "\nGOODBYE"
             row = {
                 "id": f"ex_{e['index']}",
                 "user": e["task"],
@@ -117,7 +136,7 @@ def main():
             row = {
                 "id": f"ex_{e['index']}",
                 "user": e["task"],
-                "checks": infer_checks(e["task"]),
+                "checks": infer_checks(e["task"], require_goodbye=args.append_goodbye),
             }
             f.write(json.dumps(row) + "\n")
 
