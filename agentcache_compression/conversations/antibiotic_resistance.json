@@ -1,0 +1,12 @@
+[
+  "Summarize the current state of antibiotic resistance globally: how widespread it is, which bacteria are most resistant, and which regions are most affected. Include the estimated annual death toll attributed to drug-resistant infections.",
+  "Filter that summary to cover only the ESKAPE pathogens. For each pathogen, include the antibiotics it is resistant to and the year resistance was first widely documented.",
+  "Present the filtered results as a structured table with four columns: Pathogen, Resistant Antibiotics, Year First Documented, and Most Affected Regions.",
+  "Reorganize all the information into three standalone sections: Clinical Impact, Geographic Distribution, and Policy Responses. Each section should be self-contained and readable on its own.",
+  "Review each claim in the Clinical Impact section. Flag any statistic that is older than 2019 or sourced from a single study. For each flagged item, note what a more current or better-supported figure would be.",
+  "Narrow the geographic scope to low- and middle-income countries only. Apply this scope before the section breakdown so that all three sections reflect only that population.",
+  "For each item in the Policy Responses section, include the full name of the policy or initiative, the issuing body, the year it was enacted, and a brief description of its mechanism and any reported outcomes.",
+  "Find at least three peer-reviewed studies published after 2020 that challenge or complicate the mainstream narrative on antibiotic resistance trends. For each, summarize the main argument, the methodology used, and why the finding is significant.",
+  "Validate each source cited across all three sections against these criteria: published after 2015, from a peer-reviewed journal or an official body such as WHO, CDC, or a national health authority, and includes original quantitative data. Flag any source that fails one or more criteria and explain why.",
+  "Write a briefing note of 300 words or fewer covering all three sections, written for a policy audience with no medical background. Append a curated list of the five most authoritative sources used, formatted with author or organization, title, and year."
+]
