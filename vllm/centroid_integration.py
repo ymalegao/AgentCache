@@ -168,7 +168,9 @@ def _centroid_sched_check_once() -> tuple[bool, int]:
         from vllm.centroid_injector import load_sys_prefix_token_count
 
         k_np = np.load(k, mmap_mode='r')
-        centroid_len = k_np.shape[1] if k_np.ndim == 3 else 1
+        raw_len = k_np.shape[1] if k_np.ndim == 3 else 1
+        cap = int(os.environ.get("VLLM_CENTROID_LEN", raw_len))
+        centroid_len = min(cap, raw_len)
         sys_count = load_sys_prefix_token_count(k)
 
         has_exact_sys = bool(os.environ.get("VLLM_EXACT_SYS_K_PATH"))

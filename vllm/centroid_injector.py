@@ -71,9 +71,10 @@ class CentroidInjector:
             self.K = torch.tensor(K, dtype=torch.float16, device=device).unsqueeze(1)
             self.V = torch.tensor(V, dtype=torch.float16, device=device).unsqueeze(1)
         else:
-            self.centroid_len = K.shape[1]
-            self.K = torch.tensor(K, dtype=torch.float16, device=device)
-            self.V = torch.tensor(V, dtype=torch.float16, device=device)
+            cap = int(os.environ.get("VLLM_CENTROID_LEN", K.shape[1]))
+            self.centroid_len = min(cap, K.shape[1])
+            self.K = torch.tensor(K[:, :self.centroid_len, :], dtype=torch.float16, device=device)
+            self.V = torch.tensor(V[:, :self.centroid_len, :], dtype=torch.float16, device=device)
 
         self._centroid_k_path = centroid_K_path
         self.sys_token_count = load_sys_prefix_token_count(centroid_K_path)
@@ -373,11 +374,11 @@ class CentroidInjector:
 
                             k_sys_row = sys_rotated[layer_idx, :sys_fill_len, :, :].to(slot_dtype)
                             v_sys_row = self.sys_V[layer_idx, :sys_fill_len, :].view(sys_fill_len, num_kv_heads, head_dim).to(slot_dtype)
-                            kv_tensor[0, phys_blocks_sys, intras_sys, :, :] = k_sys_row
-                            kv_tensor[1, phys_blocks_sys, intras_sys, :, :] = v_sys_row
+                            kv_tensor[phys_blocks_sys, 0, intras_sys, :, :] = k_sys_row
+                            kv_tensor[phys_blocks_sys, 1, intras_sys, :, :] = v_sys_row
                         if debug:
                             kv0 = kv_caches[0]
-                            readback = kv0[0, int(phys_blocks_sys[0]), int(intras_sys[0]), :, :]
+                            readback = kv0[int(phys_blocks_sys[0]), 0, int(intras_sys[0]), :, :]
                             expected = sys_rotated[0, 0, :, :].to(kv0.dtype)
                             match = torch.allclose(readback, expected, atol=1e-2)
                             logger.info(
@@ -436,12 +437,12 @@ class CentroidInjector:
                     for layer_idx in range(n_layers):
                         kv_tensor = kv_caches[layer_idx]
                         slot_dtype = kv_tensor.dtype
-                        kv_tensor[0, phys_blocks_cent, intras_cent, :, :] = k_rotated_all[layer_idx].to(slot_dtype)
-                        kv_tensor[1, phys_blocks_cent, intras_cent, :, :] = v_all[layer_idx].to(slot_dtype)
+                        kv_tensor[phys_blocks_cent, 0, intras_cent, :, :] = k_rotated_all[layer_idx].to(slot_dtype)
+                        kv_tensor[phys_blocks_cent, 1, intras_cent, :, :] = v_all[layer_idx].to(slot_dtype)
 
                     if debug:
                         kv0 = kv_caches[0]
-                        readback = kv0[0, int(phys_blocks_cent[0]), int(intras_cent[0]), :, :]
+                        readback = kv0[int(phys_blocks_cent[0]), 0, int(intras_cent[0]), :, :]
                         expected = k_rotated_all[0, 0, :, :].to(kv0.dtype)
                         match = torch.allclose(readback, expected, atol=1e-2)
                         logger.info(
