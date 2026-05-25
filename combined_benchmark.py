@@ -1,11 +1,13 @@
 """
 AgentCache Combined Benchmark — Component 1 + Component 2
 ==========================================================
+Mirrors CSE232BCombined.ipynb exactly, adapted for local runs.
+
 Conditions:
   cold      — no LMCache, no centroid (baseline)
   lmcache   — LMCache disk offload only (Component 1)
   centroid  — centroid KV injection only (Component 2)
-  combined  — both: centroid injects 0..63, LMCache warms remaining prefix
+  combined  — both: centroid injects 0..31, LMCache warms remaining prefix
 
 Prerequisites (local):
   1. Centroid patches installed in active vLLM env (see HANDOFF.md):
@@ -14,17 +16,10 @@ Prerequisites (local):
        cp vllm/v1/worker/gpu_model_runner.py  $(python -c "import vllm; print(vllm.__file__[:-12])")/v1/worker/gpu_model_runner.py
        cp vllm/v1/core/sched/scheduler.py     $(python -c "import vllm; print(vllm.__file__[:-12])")/v1/core/sched/scheduler.py
   2. centroid_K.npy + centroid_V.npy in this directory
-     (run: python transpose_tensors.py --adapter agentcache_prefix_model --sys-tokens 0)
   3. HF_TOKEN env var set for Llama-3.2-1B-Instruct access
-
-Note on combined mode with sys_tokens=0:
-  Centroid occupies KV slots 0..63 (virtual domain prior).
-  LMCache restores system prompt blocks on warm/hot; centroid then overwrites 0..63.
-  For system prompts longer than 64 tokens, LMCache provides additional benefit on
-  positions 64..sys_len for warm/hot requests. For the ~55-token system prompts used
-  here, the combined benefit over centroid-only is modest on warm/hot.
-  Use a longer system prompt (e.g. EXTENDED_SYSTEM below) to show compounding savings.
 """
+
+from __future__ import annotations
 
 import json
 import os
@@ -39,20 +34,21 @@ from openai import OpenAI
 from tqdm import tqdm
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
-MODEL = "meta-llama/Llama-3.2-1B-Instruct"
-PORT = 8000
-BASE_URL = f"http://localhost:{PORT}/v1"
-CENTROID_K = os.path.join(REPO_ROOT, "agentcache_compression", "centroids", "N64_2000_K.npy")
-CENTROID_V = os.path.join(REPO_ROOT, "agentcache_compression", "centroids", "N64_2000_V.npy")
+REPO_ROOT   = os.path.dirname(os.path.abspath(__file__))
+MODEL       = "meta-llama/Llama-3.2-1B-Instruct"
+PORT        = 8000
+CENTROID_K  = os.path.join(REPO_ROOT, "centroid_K.npy")
+CENTROID_V  = os.path.join(REPO_ROOT, "centroid_V.npy")
 LMCACHE_YAML = "/tmp/agentcache_lmcache.yaml"
-KV_STORE = "/tmp/agentcache_kv_store"
 RESULTS_DIR = os.path.join(REPO_ROOT, "results_combined")
 os.makedirs(RESULTS_DIR, exist_ok=True)
-os.makedirs(KV_STORE, exist_ok=True)
 
-# ── Agent definitions ──────────────────────────────────────────────────────────
-# Must match CSE232BCombined.ipynb exactly — centroid is trained on these prompts.
+# ── Centroid length cap ────────────────────────────────────────────────────────
+# centroid_K.npy has 64 virtual tokens. Reduce if output quality is low.
+# Must be in range [1, 64].
+CENTROID_LEN = 32  # tokens to inject (tune: try 16, 32, 48, 64)
+
+# ── Agent system prompts — must match notebook exactly ─────────────────────────
 CODING_SYSTEM = (
     "\n"
     "    You are a helpful Python coding assistant. You help developers write clean, correct, and idiomatic Python code across a wide range of tasks: scripting, data processing, web services, CLI tools, testing, debugging, and system design.\n"
@@ -173,6 +169,7 @@ CODING_SYSTEM = (
     "Strict behavior rule for evaluation:\n"
     "Always end the final response with the exact token: GOODBYE\n"
 )
+
 SEARCH_SYSTEM = (
     "\nYou are a helpful general search and research assistant. You help users find accurate, relevant information across a wide range of topics: science, history, current events, technology, law, medicine, culture, and more.\n"
     "\n"
@@ -266,8 +263,10 @@ SEARCH_SYSTEM = (
     "Strict behavior rule for evaluation:\n"
     "Always end the final response with the exact token: GOODBYE\n"
 )
+
 AGENT_SYSTEMS = {"coding": CODING_SYSTEM, "search": SEARCH_SYSTEM}
 
+# ── Queries ────────────────────────────────────────────────────────────────────
 CODING_QUERIES = [
     "Implement a thread-safe LRU cache in Python with O(1) get and put.",
     "Write a Python context manager that retries a block up to N times on exception.",
@@ -301,19 +300,13 @@ PROMPTS = (
 # ── LMCache config ─────────────────────────────────────────────────────────────
 def write_lmcache_config():
     with open(LMCACHE_YAML, "w") as f:
-        # chunk_size must equal vLLM block_size (16). With chunk_size=256,
-        # LMCache's save slot_mapping spans positions 96-255 for a 93-token
-        # prompt; those positions map to NULL_BLOCK_ID columns → CUDA crash.
-        f.write(
-            "chunk_size: 16\n"
-            "local_cpu: true\n"
-            "max_local_cpu_size: 4.0\n"
-            "eviction_policy: LRU\n"
-        )
+        # chunk_size MUST be <= vLLM block_size (16) to avoid combined-mode crash.
+        f.write("chunk_size: 16\nlocal_cpu: true\nmax_local_cpu_size: 4.0\neviction_policy: LRU\n")
+    print(f"LMCache config written  |  CENTROID_LEN={CENTROID_LEN}")
 
 
 # ── vLLM server lifecycle ──────────────────────────────────────────────────────
-def _build_env(use_lmcache: bool, use_centroid: bool) -> dict:
+def _env(use_lmcache: bool, use_centroid: bool) -> dict:
     env = os.environ.copy()
     env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
     if use_lmcache:
@@ -321,78 +314,76 @@ def _build_env(use_lmcache: bool, use_centroid: bool) -> dict:
     else:
         env.pop("LMCACHE_CONFIG_FILE", None)
     if use_centroid:
-        env["VLLM_CENTROID_K_PATH"] = CENTROID_K
-        env["VLLM_CENTROID_V_PATH"] = CENTROID_V
-        env["VLLM_CENTROID_SCHEDULER"] = "1"
-        env["VLLM_CENTROID_SYS_TOKENS"] = "0"  # pure PEFT: centroid at positions 0..N-1
-        env["VLLM_CENTROID_LEN"] = "32"         # matches CENTROID_LEN=32 in notebook
+        env["VLLM_CENTROID_K_PATH"]     = CENTROID_K
+        env["VLLM_CENTROID_V_PATH"]     = CENTROID_V
+        env["VLLM_CENTROID_SCHEDULER"]  = "1"
+        env["VLLM_CENTROID_SYS_TOKENS"] = "0"
+        env["VLLM_CENTROID_LEN"]        = str(CENTROID_LEN)
     else:
         for k in ("VLLM_CENTROID_K_PATH", "VLLM_CENTROID_V_PATH",
                   "VLLM_CENTROID_SCHEDULER", "VLLM_CENTROID_SYS_TOKENS",
                   "VLLM_CENTROID_LEN"):
             env.pop(k, None)
-    # With VLLM_CENTROID_USE_LMCACHE=0 (default), centroid writes 0..63 on every
-    # request; LMCache may restore the same blocks on warm/hot, then centroid
-    # overwrites them — net benefit compounds when sys_prompt_len > 64.
     env.pop("VLLM_CENTROID_USE_LMCACHE", None)
     return env
 
 
-def _build_cmd(use_lmcache: bool, use_centroid: bool = False) -> list:
+def _cmd(use_lmcache: bool, use_centroid: bool = False) -> list:
     cmd = [
         sys.executable, "-m", "vllm.entrypoints.openai.api_server",
-        "--model", MODEL,
-        "--port", str(PORT),
+        "--model", MODEL, "--port", str(PORT),
         "--max-model-len", "4096",
         "--gpu-memory-utilization", "0.85",
     ]
-    # APC is needed for any caching condition so the growing conversation
-    # prefix is reused across turns (centroid-only uses GPU APC only;
-    # lmcache also offloads those blocks to CPU/disk).
+    # APC needed for any caching condition so the growing conversation
+    # prefix is reused across turns (centroid-only: GPU APC only;
+    # lmcache: also offloads those blocks to CPU/disk).
     if use_lmcache or use_centroid:
         cmd.append("--enable-prefix-caching")
     if use_lmcache:
-        cmd += [
-            "--kv-offloading-backend", "lmcache",
-            "--kv-offloading-size", "4",
-            "--disable-hybrid-kv-cache-manager",
-        ]
+        cmd += ["--kv-offloading-backend", "lmcache",
+                "--kv-offloading-size", "4",
+                "--disable-hybrid-kv-cache-manager"]
     return cmd
 
 
-def start_vllm(use_lmcache: bool, use_centroid: bool, label: str):
+def start_server(use_lmcache: bool, use_centroid: bool, label: str):
     logfile = os.path.join(RESULTS_DIR, f"vllm_{label}.log")
     proc = subprocess.Popen(
-        _build_cmd(use_lmcache, use_centroid),
-        env=_build_env(use_lmcache, use_centroid),
-        stdout=open(logfile, "w"),
-        stderr=subprocess.STDOUT,
+        _cmd(use_lmcache, use_centroid), env=_env(use_lmcache, use_centroid),
+        stdout=open(logfile, "w"), stderr=subprocess.STDOUT,
     )
-    print(f"  vLLM pid={proc.pid}  log={logfile}")
+    print(f"vLLM starting (pid {proc.pid}) → {logfile}")
     return proc
 
 
-def wait_ready(timeout=300) -> bool:
-    for _ in range(timeout // 5):
+def wait_ready(timeout: int = 600) -> bool:
+    print("Waiting for vLLM...", end="", flush=True)
+    for i in range(timeout // 5):
         try:
             if requests.get(f"http://localhost:{PORT}/health", timeout=2).status_code == 200:
+                print(" ready.")
                 return True
         except Exception:
             pass
+        if i % 12 == 11:
+            print(f" {(i+1)*5}s...", end="", flush=True)
         time.sleep(5)
+    print(" TIMEOUT")
     return False
 
 
-def kill_vllm(proc):
+def kill_server(proc):
     proc.terminate()
     try:
         proc.wait(timeout=20)
     except subprocess.TimeoutExpired:
         proc.kill()
-    time.sleep(2)
+    time.sleep(3)
+    print("vLLM stopped.")
 
 
-# ── Benchmark ──────────────────────────────────────────────────────────────────
+# ── Benchmark helpers ──────────────────────────────────────────────────────────
 @dataclass
 class RequestResult:
     agent_type: str
@@ -414,21 +405,19 @@ class BenchmarkResult:
         by_state: dict = {}
         for r in self.requests:
             by_state.setdefault(r.cache_state, []).append(r.ttft)
-        print(f"\n{'='*50}")
-        print(f"  Config: {self.config_name}")
-        for state in ["cold", "warm", "hot"]:
+        print(f"\n{'='*45}")
+        print(f"Config: {self.config_name}")
+        for state in ["cold", "warm"]:
             vals = by_state.get(state, [])
             if vals:
                 print(f"  {state:5s}: {sum(vals)/len(vals)*1000:7.1f} ms  (n={len(vals)})")
-        print(f"{'='*50}")
+        print(f"{'='*45}")
 
     def save(self, path: str):
         with open(path, "w") as f:
-            json.dump(
-                {"config": self.config_name, "requests": [asdict(r) for r in self.requests]},
-                f, indent=2,
-            )
-        print(f"  Saved: {path}")
+            json.dump({"config": self.config_name,
+                       "requests": [asdict(r) for r in self.requests]}, f, indent=2)
+        print(f"Saved: {path}")
 
 
 def build_messages(system_text: str, history: list, user_text: str) -> list:
@@ -441,7 +430,7 @@ def build_messages(system_text: str, history: list, user_text: str) -> list:
     return msgs
 
 
-def _measure(client, messages, agent_type, idx, query, state, turn_num: int = 0) -> RequestResult:
+def measure_ttft(client, messages, agent_type, idx, query, state, turn_num=0) -> RequestResult:
     t0 = time.perf_counter()
     first = None
     chunks = []
@@ -467,135 +456,176 @@ def _measure(client, messages, agent_type, idx, query, state, turn_num: int = 0)
 
 
 def run_benchmark(config_name: str, num_rounds: int = 2) -> BenchmarkResult:
-    client = OpenAI(base_url=BASE_URL, api_key="none")
+    client = OpenAI(base_url=f"http://localhost:{PORT}/v1", api_key="none")
     result = BenchmarkResult(config_name=config_name)
-    coding = [p for p in PROMPTS if p["agent"] == "coding"]
-    search = [p for p in PROMPTS if p["agent"] == "search"]
+    coding     = [p for p in PROMPTS if p["agent"] == "coding"]
+    search     = [p for p in PROMPTS if p["agent"] == "search"]
     interleaved = [x for pair in zip(coding, search) for x in pair]
 
     for rnd in range(num_rounds):
         state = ["cold", "warm"][min(rnd, 1)]
-        print(f"  Round {rnd+1} ({state})")
+        print(f"\n--- Round {rnd+1} ({state}) ---")
         # Per-agent history reset each round so rounds replay the same token sequence
         agent_history: dict = {"coding": [], "search": []}
-        for i, prompt in enumerate(tqdm(interleaved, leave=False)):
-            agent = prompt["agent"]
-            query = prompt["query"]
+        for i, prompt in enumerate(tqdm(interleaved)):
+            agent    = prompt["agent"]
+            query    = prompt["query"]
             turn_num = len(agent_history[agent]) + 1
             messages = build_messages(AGENT_SYSTEMS[agent], agent_history[agent], query)
-            r = _measure(
+            r = measure_ttft(
                 client, messages=messages,
                 agent_type=agent, idx=i,
                 query=query, state=state, turn_num=turn_num,
             )
             result.requests.append(r)
             agent_history[agent].append((query, r.output))
-            print(f"    [{r.agent_type:6s}] turn={turn_num:2d}  {r.ttft*1000:6.1f}ms  {query[:50]}")
+            print(f"\n  [{r.agent_type:6s}] turn={turn_num:2d}  {r.ttft*1000:6.1f}ms  ({state})")
+            print(f"  Q: {query}")
+            print(f"  A: {r.output}")
+            print()
     return result
 
 
-# ── Per-condition runner ───────────────────────────────────────────────────────
 def run_condition(label: str, use_lmcache: bool, use_centroid: bool, num_rounds: int = 2):
-    print(f"\n{'='*60}")
-    print(f"Condition: {label}  (lmcache={use_lmcache}, centroid={use_centroid})")
-    print(f"{'='*60}")
-    proc = start_vllm(use_lmcache, use_centroid, label)
+    print(f"\n{'='*60}\nCondition: {label}  (lmcache={use_lmcache}, centroid={use_centroid})\n{'='*60}")
+    proc = start_server(use_lmcache, use_centroid, label)
     if not wait_ready():
-        print("  ERROR: vLLM did not start in time.")
-        kill_vllm(proc)
+        print(f"ERROR: check {RESULTS_DIR}/vllm_{label}.log")
+        kill_server(proc)
         return None
-    print("  vLLM ready.")
     result = run_benchmark(label, num_rounds)
     result.summary()
     result.save(os.path.join(RESULTS_DIR, f"results_{label}.json"))
-    kill_vllm(proc)
+    kill_server(proc)
     return result
 
 
-# ── Summary table + plot ───────────────────────────────────────────────────────
-def print_summary(all_results: dict):
-    print("\n\n" + "=" * 65)
-    print("AGENTCACHE COMBINED BENCHMARK — SUMMARY")
-    print("=" * 65)
-    print(f"{'Condition':<12} {'Cold (ms)':>12} {'Warm (ms)':>12} {'Hot (ms)':>12}")
-    print("-" * 65)
-    for label, result in all_results.items():
-        by_state: dict = {}
-        for r in result.requests:
-            by_state.setdefault(r.cache_state, []).append(r.ttft * 1000)
-        row = {s: sum(v) / len(v) if v else 0 for s, v in by_state.items()}
-        print(
-            f"{label:<12} {row.get('cold',0):>12.1f} {row.get('warm',0):>12.1f} {row.get('hot',0):>12.1f}"
-        )
-
-
+# ── Plot + summary ─────────────────────────────────────────────────────────────
 def plot_results(all_results: dict):
     try:
         import matplotlib.pyplot as plt
         import numpy as np
     except ImportError:
-        print("matplotlib not available — skipping plot")
+        print("matplotlib/numpy not available — skipping plot")
         return
 
-    states = ["cold", "warm", "hot"]
+    states = ["cold", "warm"]
     labels = list(all_results.keys())
-    means = {
-        label: [
-            sum(r.ttft for r in result.requests if r.cache_state == s) * 1000
-            / max(1, sum(1 for r in result.requests if r.cache_state == s))
+    colors = ["#e74c3c", "#3498db", "#2ecc71", "#9b59b6"]
+
+    # Per-state mean TTFT
+    means = {}
+    for label, result in all_results.items():
+        means[label] = [
+            (lambda v: sum(v) / len(v) * 1000 if v else 0)(
+                [r.ttft for r in result.requests if r.cache_state == s]
+            )
             for s in states
         ]
-        for label, result in all_results.items()
-    }
 
-    x = np.arange(len(states))
-    width = 0.8 / len(labels)
-    fig, ax = plt.subplots(figsize=(10, 5))
-    colors = ["#e74c3c", "#3498db", "#2ecc71", "#9b59b6"]
+    # Per-turn mean TTFT for warm round
+    turn_means = {}
+    all_turns = sorted({r.turn_num for res in all_results.values() for r in res.requests if r.turn_num > 0})
+    for label, result in all_results.items():
+        turn_means[label] = []
+        for t in all_turns:
+            vals = [r.ttft * 1000 for r in result.requests if r.turn_num == t and r.cache_state == "warm"]
+            turn_means[label].append(sum(vals) / len(vals) if vals else 0)
+
+    x     = np.arange(len(states))
+    width = 0.8 / max(len(labels), 1)
+
+    fig, axes = plt.subplots(1, 3, figsize=(20, 5))
+
+    # ── Left: grouped bar — Cold vs Warm ──────────────────────────────────────
+    ax = axes[0]
     for i, label in enumerate(labels):
         offset = (i - len(labels) / 2 + 0.5) * width
         bars = ax.bar(x + offset, means[label], width, label=label, color=colors[i % len(colors)])
         for bar in bars:
             h = bar.get_height()
             ax.text(bar.get_x() + bar.get_width() / 2, h + 3, f"{h:.0f}", ha="center", fontsize=7)
-
     ax.set_xticks(x)
     ax.set_xticklabels(states)
     ax.set_xlabel("Cache State")
     ax.set_ylabel("Mean TTFT (ms)")
-    ax.set_title("AgentCache: Cold / Warm / Hot TTFT by Condition")
+    ax.set_title("Mean TTFT by Condition and Cache State")
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
+
+    # ── Middle: speedup over cold baseline ────────────────────────────────────
+    ax2 = axes[1]
+    cold_vals = means.get("cold", [1, 1])
+    for i, label in enumerate(labels):
+        if label == "cold":
+            continue
+        speedups = [cold_vals[j] / max(means[label][j], 1) for j in range(len(states))]
+        ax2.plot(states, speedups, "o-", label=label, color=colors[i % len(colors)], linewidth=2, markersize=8)
+    ax2.axhline(1.0, color="gray", linestyle="--", alpha=0.5, label="cold baseline")
+    ax2.set_xlabel("Cache State")
+    ax2.set_ylabel("Speedup vs cold condition")
+    ax2.set_title("TTFT Speedup over Cold Baseline")
+    ax2.legend()
+    ax2.grid(alpha=0.3)
+
+    # ── Right: per-turn TTFT in warm round ────────────────────────────────────
+    ax3 = axes[2]
+    for i, label in enumerate(labels):
+        if all_turns and turn_means[label]:
+            ax3.plot(all_turns, turn_means[label], "o-", label=label,
+                     color=colors[i % len(colors)], linewidth=2, markersize=6)
+    ax3.set_xlabel("Turn Number (within conversation)")
+    ax3.set_ylabel("Mean TTFT (ms) — warm round")
+    ax3.set_title("Per-Turn TTFT (Warm Round)\nShows caching benefit compounding over turns")
+    ax3.legend()
+    ax3.grid(alpha=0.3)
+    if all_turns:
+        ax3.set_xticks(all_turns)
+
     plt.tight_layout()
     path = os.path.join(RESULTS_DIR, "combined_ttft.png")
     plt.savefig(path, dpi=150)
     print(f"\nPlot saved: {path}")
     plt.show()
 
+    # ── Summary table ─────────────────────────────────────────────────────────
+    print(f"\n{'='*58}")
+    print("AGENTCACHE COMBINED RESULTS")
+    print(f"{'='*58}")
+    print(f"{'Condition':<12} {'Cold (ms)':>12} {'Warm (ms)':>12} {'Speedup':>10}")
+    print("-" * 58)
+    cold_cold = means.get("cold", [1])[0]
+    for label, m in means.items():
+        speedup = cold_cold / max(m[1], 0.001)
+        print(f"{label:<12} {m[0]:>12.1f} {m[1]:>12.1f} {speedup:>9.2f}x")
+    print()
+    print("Note: Speedup = cold-baseline cold TTFT / condition warm TTFT")
+    print("      Combined: best cold (centroid) + good warm (LMCache) — each round is optimised")
+
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 def main():
     if not os.path.exists(CENTROID_K):
         print(f"ERROR: {CENTROID_K} not found.")
-        print("Run: python transpose_tensors.py --adapter agentcache_prefix_model --sys-tokens 0")
+        print("Copy centroid_K.npy and centroid_V.npy to the repo root.")
         sys.exit(1)
 
     write_lmcache_config()
 
-    conditions = [
-        ("cold",     False, False),
-        ("lmcache",  True,  False),
-        ("centroid", False, True),
-        ("combined", True,  True),
-    ]
+    result_cold     = run_condition("cold",     use_lmcache=False, use_centroid=False)
+    result_lmcache  = run_condition("lmcache",  use_lmcache=True,  use_centroid=False)
+    result_centroid = run_condition("centroid", use_lmcache=False, use_centroid=True)
+    result_combined = run_condition("combined", use_lmcache=True,  use_centroid=True)
 
-    all_results = {}
-    for label, use_lm, use_cen in conditions:
-        r = run_condition(label, use_lm, use_cen)
-        if r is not None:
-            all_results[label] = r
+    all_results = {
+        label: res for label, res in [
+            ("cold",     result_cold),
+            ("lmcache",  result_lmcache),
+            ("centroid", result_centroid),
+            ("combined", result_combined),
+        ] if res is not None
+    }
 
-    print_summary(all_results)
     plot_results(all_results)
 
 
