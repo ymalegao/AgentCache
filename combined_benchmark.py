@@ -43,8 +43,8 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 MODEL = "meta-llama/Llama-3.2-1B-Instruct"
 PORT = 8000
 BASE_URL = f"http://localhost:{PORT}/v1"
-CENTROID_K = os.path.join(REPO_ROOT, "centroid_K.npy")
-CENTROID_V = os.path.join(REPO_ROOT, "centroid_V.npy")
+CENTROID_K = os.path.join(REPO_ROOT, "agentcache_compression", "centroids", "N64_2000_K.npy")
+CENTROID_V = os.path.join(REPO_ROOT, "agentcache_compression", "centroids", "N64_2000_V.npy")
 LMCACHE_YAML = "/tmp/agentcache_lmcache.yaml"
 KV_STORE = "/tmp/agentcache_kv_store"
 RESULTS_DIR = os.path.join(REPO_ROOT, "results_combined")
@@ -141,7 +141,7 @@ def _build_env(use_lmcache: bool, use_centroid: bool) -> dict:
     return env
 
 
-def _build_cmd(use_lmcache: bool) -> list:
+def _build_cmd(use_lmcache: bool, use_centroid: bool = False) -> list:
     cmd = [
         sys.executable, "-m", "vllm.entrypoints.openai.api_server",
         "--model", MODEL,
@@ -149,9 +149,13 @@ def _build_cmd(use_lmcache: bool) -> list:
         "--max-model-len", "4096",
         "--gpu-memory-utilization", "0.85",
     ]
+    # APC is needed for any caching condition so the growing conversation
+    # prefix is reused across turns (centroid-only uses GPU APC only;
+    # lmcache also offloads those blocks to CPU/disk).
+    if use_lmcache or use_centroid:
+        cmd.append("--enable-prefix-caching")
     if use_lmcache:
         cmd += [
-            "--enable-prefix-caching",
             "--kv-offloading-backend", "lmcache",
             "--kv-offloading-size", "4",
             "--disable-hybrid-kv-cache-manager",
@@ -162,7 +166,7 @@ def _build_cmd(use_lmcache: bool) -> list:
 def start_vllm(use_lmcache: bool, use_centroid: bool, label: str):
     logfile = os.path.join(RESULTS_DIR, f"vllm_{label}.log")
     proc = subprocess.Popen(
-        _build_cmd(use_lmcache),
+        _build_cmd(use_lmcache, use_centroid),
         env=_build_env(use_lmcache, use_centroid),
         stdout=open(logfile, "w"),
         stderr=subprocess.STDOUT,
@@ -200,6 +204,8 @@ class RequestResult:
     ttft: float
     total_time: float
     cache_state: str
+    turn_num: int = 0
+    output: str = ""
 
 
 @dataclass
@@ -228,23 +234,42 @@ class BenchmarkResult:
         print(f"  Saved: {path}")
 
 
-def _measure(client, messages, agent_type, idx, query, state) -> RequestResult:
+def build_messages(system_text: str, history: list, user_text: str) -> list:
+    """Build a growing context: system + all prior Q/A pairs + current query."""
+    msgs = [{"role": "system", "content": system_text}]
+    for user_q, asst_ans in history:
+        msgs.append({"role": "user",      "content": user_q})
+        msgs.append({"role": "assistant", "content": asst_ans})
+    msgs.append({"role": "user", "content": user_text})
+    return msgs
+
+
+def _measure(client, messages, agent_type, idx, query, state, turn_num: int = 0) -> RequestResult:
     t0 = time.perf_counter()
     first = None
-    for chunk in client.chat.completions.create(
-        model=MODEL, messages=messages, max_tokens=256, stream=True
-    ):
-        if first is None and chunk.choices and chunk.choices[0].delta.content:
-            first = time.perf_counter()
+    chunks = []
+    try:
+        for chunk in client.chat.completions.create(
+            model=MODEL, messages=messages, max_tokens=128, temperature=0.0, stream=True
+        ):
+            if chunk.choices and chunk.choices[0].delta.content:
+                token = chunk.choices[0].delta.content
+                if first is None:
+                    first = time.perf_counter()
+                chunks.append(token)
+    except Exception as e:
+        print(f"    [WARN] turn={turn_num} request failed: {e}")
     total = time.perf_counter() - t0
     return RequestResult(
         agent_type=agent_type, query_idx=idx, query=query[:60],
         ttft=(first - t0) if first else total,
         total_time=total, cache_state=state,
+        turn_num=turn_num,
+        output="".join(chunks),
     )
 
 
-def run_benchmark(config_name: str, num_rounds: int = 3) -> BenchmarkResult:
+def run_benchmark(config_name: str, num_rounds: int = 2) -> BenchmarkResult:
     client = OpenAI(base_url=BASE_URL, api_key="none")
     result = BenchmarkResult(config_name=config_name)
     coding = [p for p in PROMPTS if p["agent"] == "coding"]
@@ -252,25 +277,28 @@ def run_benchmark(config_name: str, num_rounds: int = 3) -> BenchmarkResult:
     interleaved = [x for pair in zip(coding, search) for x in pair]
 
     for rnd in range(num_rounds):
-        state = ["cold", "warm", "hot"][min(rnd, 2)]
+        state = ["cold", "warm"][min(rnd, 1)]
         print(f"  Round {rnd+1} ({state})")
+        # Per-agent history reset each round so rounds replay the same token sequence
+        agent_history: dict = {"coding": [], "search": []}
         for i, prompt in enumerate(tqdm(interleaved, leave=False)):
+            agent = prompt["agent"]
+            query = prompt["query"]
+            turn_num = len(agent_history[agent]) + 1
+            messages = build_messages(AGENT_SYSTEMS[agent], agent_history[agent], query)
             r = _measure(
-                client,
-                messages=[
-                    {"role": "system", "content": AGENT_SYSTEMS[prompt["agent"]]},
-                    {"role": "user",   "content": prompt["query"]},
-                ],
-                agent_type=prompt["agent"], idx=i,
-                query=prompt["query"], state=state,
+                client, messages=messages,
+                agent_type=agent, idx=i,
+                query=query, state=state, turn_num=turn_num,
             )
             result.requests.append(r)
-            print(f"    [{r.agent_type:6s}] {r.ttft*1000:6.1f}ms  {prompt['query'][:50]}")
+            agent_history[agent].append((query, r.output))
+            print(f"    [{r.agent_type:6s}] turn={turn_num:2d}  {r.ttft*1000:6.1f}ms  {query[:50]}")
     return result
 
 
 # ── Per-condition runner ───────────────────────────────────────────────────────
-def run_condition(label: str, use_lmcache: bool, use_centroid: bool, num_rounds: int = 3):
+def run_condition(label: str, use_lmcache: bool, use_centroid: bool, num_rounds: int = 2):
     print(f"\n{'='*60}")
     print(f"Condition: {label}  (lmcache={use_lmcache}, centroid={use_centroid})")
     print(f"{'='*60}")
