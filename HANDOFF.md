@@ -1,7 +1,7 @@
 # AgentCache — System Design & Handoff
 
-**Date:** 2026-05-22  
-**Status:** Multi-turn benchmark pipeline complete. Compression mode validated. 2.8× TTFT speedup confirmed at 1000-token contexts.
+**Date:** 2026-05-25  
+**Status:** Multi-turn benchmark pipeline complete. Llama compression path validated. GPT-OSS synthetic compression now works after runtime KV-layout / cache-group / RoPE fixes. 2.8× TTFT speedup confirmed at 1000-token contexts on Llama.
 
 ---
 
@@ -175,6 +175,10 @@ k_flat = k.permute(1, 0, 2).contiguous().view(num_virtual_tokens, -1)
 
 This guarantees the exported tensors are cache-aligned with PEFT's runtime format.
 
+### 4.3 GPT-OSS Export Note
+
+For GPT-OSS, the exported `.npy` tensors from `PeftModel.get_prompt()` should be treated as the learned prefix KV representation directly. In the runtime path that proved correct for GPT-OSS, those exported K tensors are injected without applying an extra centroid-side RoPE transform.
+
 ### 4.2 Output Format
 
 | File | Shape | Description |
@@ -252,9 +256,23 @@ The injector runs before each forward pass on prefill:
 
 1. **Load**: `.npy` files are loaded once at server startup.
 2. **Seed**: For positions 0..N-1, write centroid K/V tensors into the physical KV cache block table slots.
-3. **RoPE rotation**: The stored centroid K tensors are rotated with position offsets 0..N-1 offline (at injection time, not during the forward pass). This ensures the keys are positionally consistent with the user tokens that follow.
+3. **RoPE rotation**: For the original Llama/Qwen-style path, stored centroid K tensors are rotated with position offsets 0..N-1 at injection time. GPT-OSS is a model-specific exception: the exported PEFT prefix K must be injected unrotated.
 4. **Caching**: After seeding a request, the request ID is recorded. On subsequent turns in the same session, re-seeding is skipped (APC has already cached the prefix).
 5. **Block table mapping**: The injector computes `block_col = position // block_size` and `intra_block_idx = position % block_size` to write to the correct physical memory location.
+
+### 5.4.1 GPT-OSS Runtime Fixes
+
+GPT-OSS did not work with the initial centroid path even after centroid files exported successfully. Four runtime issues had to be fixed:
+
+1. **RoPE lookup path**: GPT-OSS exposes rotary embeddings at `layers[i].attn.rotary_emb`, not `layers[i].self_attn.rotary_emb`.
+2. **Multiple KV cache groups**: GPT-OSS alternates sliding-window and full-attention layers, so centroid injection must respect per-layer KV cache groups instead of always using group 0.
+3. **KV cache tensor layout**: GPT-OSS exposed blocks-first KV cache tensors, so writes had to become layout-aware instead of assuming a single K/V axis order.
+4. **Model-specific RoPE behavior**: GPT-OSS synthetic coherence was broken by rotating learned centroid K during injection. The working path is to inject GPT-OSS centroid K/V as already-final learned KV, without extra centroid-side RoPE.
+
+Current behavior:
+
+- GPT-OSS auto-detects in `centroid_integration.py` and disables centroid-side RoPE only for `hf_config.model_type == "gpt_oss"`.
+- Other existing models keep the previous RoPE behavior.
 
 ### 5.5 APC (Automatic Prefix Caching) Interaction
 
@@ -394,7 +412,7 @@ This is evidence that the adapter is learning compressed semantic representation
 
 **What it checks:** Response is >20 words with no degenerate token repetition.  
 **Why it matters:** Centroid injection writes directly into the KV cache. A misconfigured injection (wrong shape, wrong positions, bad RoPE rotation) causes the model to produce garbled or looping output.  
-**Results:** 100% coherence across all modes. Injection is safe.
+**Results:** Llama path was stable. GPT-OSS initially failed this metric with repeated `It is a` / `Sure` loops until the model-specific runtime fixes above were applied. After disabling centroid-side RoPE for GPT-OSS, synthetic generations became coherent and task-relevant again.
 
 ### 8.4 Task-Check Pass Rate
 
@@ -495,6 +513,38 @@ The base Llama-3.2-1B-Instruct does not reliably follow multi-sentence instructi
 ### Priority experiments
 
 1. **Token × context-length grid**: Run N ∈ {64, 128, 256} × context ∈ {200, 500, 1000, 2000} to map the quality floor and speedup curve.
-2. **N=256 adapter training**: Currently only N=64 and N=128 adapters are trained.
+2. **N=256 adapter training**: Currently only N=64 and N=128 adapters are trained reliably. On GPT-OSS, N=256 prefix tuning is likely to hit memory limits unless batch size / sequence length / checkpointing settings are reduced.
 3. **7B model validation**: Repeat pipeline on Llama-3.1-8B or Qwen-2.5-7B for production-scale results.
-4. **GQA fix in transpose_tensors.py**: Required before any non-1.5B model.
+4. **Model-family audit**: Each new model family should be checked for (a) rotary lookup path, (b) KV cache group topology, (c) KV tensor layout, and (d) whether exported PEFT K should be centroid-side rotated at all.
+
+### GPT-OSS Harmony Serve Note
+
+`vllm serve` for GPT-OSS may fail at startup in offline or restricted environments because the OpenAI-compatible Responses / Chat / Anthropic serving surfaces initialize Harmony helpers and try to load the Harmony vocab. In this repo, the multi-turn benchmark was patched to avoid that failure by:
+
+- preferring the local `venv/bin/vllm` executable when `vllm` is not on `PATH`,
+- using token-ID prompts for GPT-OSS benchmark requests so completions can be used directly,
+- and skipping GPT-OSS-only OpenAI Responses / Chat / Anthropic serving initialization if Harmony cannot initialize.
+
+These changes are benchmark/runtime startup workarounds. They do not change GPT-OSS weights, adapter weights, centroid tensors, or the core GPT-OSS forward path.
+
+### N=256 Training Memory Note
+
+`train_prefix_compression.py` keeps:
+
+- the full base model loaded in BF16,
+- batch size fixed at 4,
+- full padded assistant-training sequences,
+- and `prefix_projection=True`, which adds a projected prefix of length `N` to every layer.
+
+Increasing `num_virtual_tokens` from 64 → 128 → 256 increases the effective attended sequence length for every example and enlarges the per-layer learned prefix state. The dominant training-memory growth is activation / attention memory, not just saved adapter weights. On GPT-OSS this is especially expensive because:
+
+- the model has 24 layers,
+- training loads the base model as BF16 in `transformers`,
+- and GPT-OSS training does not use any memory-saving features like gradient checkpointing in this script.
+
+So `N=64` and `N=128` can fit while `N=256` crosses the VRAM cliff. The first mitigations to try are:
+
+1. reduce `--batch-size` from 4 to 1 or 2,
+2. shorten the system prompt or training sequence lengths,
+3. enable gradient checkpointing,
+4. if possible, avoid full BF16 materialization of GPT-OSS during training.
