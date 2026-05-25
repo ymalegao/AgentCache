@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import Any
 
@@ -338,12 +339,24 @@ def _unwrap_model(runner: Any) -> Any:
 
 
 def try_get_rotary_emb(runner: Any) -> Any | None:
-    """First decoder layer's RoPE module (Qwen/Llama-style); None if not present."""
+    """First decoder layer's RoPE module; None if not present.
+
+    Different model families hang the decoder attention module off different
+    attributes. Qwen/Llama commonly use ``self_attn`` while GPT-OSS uses
+    ``attn``.
+    """
     try:
         m = _unwrap_model(runner)
         layers = m.model.layers
-        attn = layers[0].self_attn
-        return getattr(attn, "rotary_emb", None)
+        layer0 = layers[0]
+
+        for attn_attr in ("self_attn", "attn"):
+            attn = getattr(layer0, attn_attr, None)
+            rotary_emb = getattr(attn, "rotary_emb", None)
+            if rotary_emb is not None:
+                return rotary_emb
+
+        return getattr(layer0, "rotary_emb", None)
     except Exception:
         return None
 
@@ -356,6 +369,49 @@ def try_get_rotary_emb_cached(runner: Any) -> Any | None:
     emb = try_get_rotary_emb(runner)
     setattr(runner, "_centroid_cached_rotary_emb", emb)
     return emb
+
+
+_LAYER_INDEX_RE = re.compile(r"\.layers\.(\d+)\.")
+
+
+def _parse_transformer_layer_idx(layer_name: str) -> int | None:
+    match = _LAYER_INDEX_RE.search(layer_name)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def _centroid_layer_kv_cache_groups(runner: Any, num_layers: int) -> list[int] | None:
+    attn_groups = getattr(runner, "attn_groups", None)
+    kv_cfg = getattr(runner, "kv_cache_config", None)
+    if not attn_groups or kv_cfg is None or num_layers <= 0:
+        return None
+
+    group_ids = [-1] * num_layers
+    for gid, groups in enumerate(attn_groups):
+        for attn_group in groups:
+            for layer_name in getattr(attn_group, "layer_names", ()):
+                layer_idx = _parse_transformer_layer_idx(layer_name)
+                if layer_idx is None or layer_idx < 0 or layer_idx >= num_layers:
+                    continue
+                prev_gid = group_ids[layer_idx]
+                if prev_gid not in (-1, gid):
+                    return None
+                group_ids[layer_idx] = gid
+
+    if any(gid < 0 for gid in group_ids):
+        return None
+    return group_ids
+
+
+def _centroid_kv_group_block_sizes(runner: Any) -> list[int] | None:
+    kv_cfg = getattr(runner, "kv_cache_config", None)
+    if kv_cfg is None or not kv_cfg.kv_cache_groups:
+        return None
+    try:
+        return [int(group.kv_cache_spec.block_size) for group in kv_cfg.kv_cache_groups]
+    except Exception:
+        return None
 
 
 def _prompt_lens_np(
@@ -382,6 +438,7 @@ def apply_centroid_block_table(
     block_table: torch.Tensor,
     num_reqs: int,
     input_batch: Any | None = None,
+    all_block_tables: tuple[torch.Tensor, ...] | None = None,
 ) -> torch.Tensor:
     """Seed centroid K/V into KV cache for the warm-start prefix. Leaves block_table unchanged."""
     if not centroid_scheduler_mode():
@@ -491,6 +548,18 @@ def apply_centroid_block_table(
             torch.cuda.synchronize()
         t0 = time.perf_counter()
 
+    layer_kv_cache_groups = None
+    kv_group_block_sizes = None
+    if all_block_tables is not None and len(all_block_tables) > 1:
+        layer_kv_cache_groups = _centroid_layer_kv_cache_groups(
+            runner,
+            int(getattr(inj, "num_layers", 0)),
+        )
+        kv_group_block_sizes = _centroid_kv_group_block_sizes(runner)
+
+    hf_cfg = getattr(getattr(runner, "model_config", None), "hf_config", None)
+    disable_centroid_rope = bool(getattr(hf_cfg, "model_type", None) == "gpt_oss")
+
     inj.seed_prefix_into_kv_cache(
         kvc,
         block_table,
@@ -505,6 +574,10 @@ def apply_centroid_block_table(
         target_dtype=getattr(runner, "dtype", None),
         device=getattr(runner, "device", None),
         req_ids=req_id_list,
+        kv_block_tables=all_block_tables,
+        layer_kv_cache_groups=layer_kv_cache_groups,
+        kv_group_block_sizes=kv_group_block_sizes,
+        disable_rope=disable_centroid_rope,
     )
 
     if t0 is not None:

@@ -67,7 +67,7 @@ def main():
     # Training hyperparameters
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--lr", type=float, default=2e-3)
-    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=1)
 
     # Test modes
     parser.add_argument(

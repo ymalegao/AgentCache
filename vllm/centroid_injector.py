@@ -161,12 +161,21 @@ class CentroidInjector:
         target_dtype: torch.dtype | None = None,
         device: torch.device | None = None,
         req_ids: list[str] | None = None,
+        kv_block_tables: tuple[torch.Tensor, ...] | list[torch.Tensor] | None = None,
+        layer_kv_cache_groups: list[int] | None = None,
+        kv_group_block_sizes: list[int] | None = None,
+        disable_rope: bool = False,
     ) -> None:
         perf_dbg = os.environ.get("CENTROID_PERF_DEBUG", "0") == "1"
         t_seed_start = time.perf_counter() if perf_dbg else None
         rope_cache_hit = False
 
-        if rotary_emb is None:
+        disable_rope = disable_rope or (os.environ.get("VLLM_CENTROID_DISABLE_ROPE", "0") == "1")
+        if disable_rope:
+            rotary_emb = None
+
+        if rotary_emb is None and not getattr(self, "_warned_unrotated_k", False):
+            self._warned_unrotated_k = True
             logger.warning("CentroidInjector: rotary_emb is None — injecting unrotated K")
 
         # After the first successful seed per request_id, KV slots are stable; skip
@@ -180,6 +189,85 @@ class CentroidInjector:
         dev = device or self.K.device
         tgt_dtype = target_dtype or self.K.dtype
         n_q_heads = int(num_query_heads) if num_query_heads is not None else num_kv_heads
+        block_tables = tuple(kv_block_tables) if kv_block_tables is not None else None
+        group_block_sizes = list(kv_group_block_sizes) if kv_group_block_sizes is not None else None
+
+        def resolve_layer_kv_group(layer_idx: int) -> tuple[int | None, torch.Tensor, int]:
+            gid: int | None = None
+            layer_block_table = block_table
+            layer_block_size = block_size
+
+            if (
+                block_tables is not None
+                and layer_kv_cache_groups is not None
+                and layer_idx < len(layer_kv_cache_groups)
+            ):
+                cand_gid = int(layer_kv_cache_groups[layer_idx])
+                if 0 <= cand_gid < len(block_tables):
+                    gid = cand_gid
+                    layer_block_table = block_tables[cand_gid]
+                    if group_block_sizes is not None and cand_gid < len(group_block_sizes):
+                        layer_block_size = int(group_block_sizes[cand_gid])
+
+            return gid, layer_block_table, layer_block_size
+
+        def _write_kv_rows(
+            kv_tensor: torch.Tensor,
+            phys_blocks: torch.Tensor,
+            intras: torch.Tensor,
+            k_row: torch.Tensor,
+            v_row: torch.Tensor,
+            layer_block_size: int,
+        ) -> None:
+            # vLLM attention backends expose blocks-first KV caches. The exact
+            # placement of the token-in-block axis differs by layout.
+            if kv_tensor.ndim != 5:
+                raise ValueError(f"Unexpected KV tensor rank: {tuple(kv_tensor.shape)}")
+
+            if kv_tensor.shape[1] == 2:
+                if kv_tensor.shape[2] == layer_block_size:
+                    # NHD: [num_blocks, 2, block_size, num_kv_heads, head_dim]
+                    kv_tensor[phys_blocks, 0, intras, :, :] = k_row
+                    kv_tensor[phys_blocks, 1, intras, :, :] = v_row
+                    return
+                if kv_tensor.shape[3] == layer_block_size:
+                    # HND: [num_blocks, 2, num_kv_heads, block_size, head_dim]
+                    kv_tensor[phys_blocks, 0, :, intras, :] = k_row
+                    kv_tensor[phys_blocks, 1, :, intras, :] = v_row
+                    return
+
+            if kv_tensor.shape[0] == 2:
+                if kv_tensor.shape[2] == layer_block_size:
+                    kv_tensor[0, phys_blocks, intras, :, :] = k_row
+                    kv_tensor[1, phys_blocks, intras, :, :] = v_row
+                    return
+                if kv_tensor.shape[3] == layer_block_size:
+                    kv_tensor[0, phys_blocks, :, intras, :] = k_row
+                    kv_tensor[1, phys_blocks, :, intras, :] = v_row
+                    return
+
+            raise ValueError(
+                "Unsupported KV tensor layout: "
+                f"shape={tuple(kv_tensor.shape)} layer_block_size={layer_block_size}"
+            )
+
+        def _readback_first_k(kv_tensor: torch.Tensor, phys_block: int, intra: int, layer_block_size: int) -> torch.Tensor:
+            if kv_tensor.ndim != 5:
+                raise ValueError(f"Unexpected KV tensor rank: {tuple(kv_tensor.shape)}")
+            if kv_tensor.shape[1] == 2:
+                if kv_tensor.shape[2] == layer_block_size:
+                    return kv_tensor[phys_block, 0, intra, :, :]
+                if kv_tensor.shape[3] == layer_block_size:
+                    return kv_tensor[phys_block, 0, :, intra, :]
+            if kv_tensor.shape[0] == 2:
+                if kv_tensor.shape[2] == layer_block_size:
+                    return kv_tensor[0, phys_block, intra, :, :]
+                if kv_tensor.shape[3] == layer_block_size:
+                    return kv_tensor[0, phys_block, :, intra, :]
+            raise ValueError(
+                "Unsupported KV tensor layout: "
+                f"shape={tuple(kv_tensor.shape)} layer_block_size={layer_block_size}"
+            )
 
         max_centroid_fill = 0
         for seq in range(num_reqs):
@@ -364,32 +452,59 @@ class CentroidInjector:
                 sys_fill_len = min(actual_sys_len, prompt_len)
                 if sys_fill_len > 0:
                     pos_idx_sys = torch.arange(sys_fill_len, device=dev)
-                    blk_cols_sys = pos_idx_sys // block_size
-                    intras_sys = pos_idx_sys % block_size
-                    phys_blocks_sys = block_table[seq, blk_cols_sys]
+                    sys_slot_cache: dict[int, tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
 
-                    if not int((phys_blocks_sys == null_block_id).any().item()):
-                        for layer_idx in range(n_layers):
-                            kv_tensor = kv_caches[layer_idx]
-                            slot_dtype = kv_tensor.dtype
+                    for layer_idx in range(n_layers):
+                        gid, layer_block_table, layer_block_size = resolve_layer_kv_group(layer_idx)
+                        cache_key = gid if gid is not None else -1
+                        slot_info = sys_slot_cache.get(cache_key)
+                        if slot_info is None:
+                            blk_cols_sys = pos_idx_sys // layer_block_size
+                            intras_sys = pos_idx_sys % layer_block_size
+                            phys_blocks_sys = layer_block_table[seq, blk_cols_sys]
+                            slot_info = (blk_cols_sys, intras_sys, phys_blocks_sys)
+                            sys_slot_cache[cache_key] = slot_info
 
-                            k_sys_row = sys_rotated[layer_idx, :sys_fill_len, :, :].to(slot_dtype)
-                            v_sys_row = self.sys_V[layer_idx, :sys_fill_len, :].view(sys_fill_len, num_kv_heads, head_dim).to(slot_dtype)
-                            kv_tensor[phys_blocks_sys, 0, intras_sys, :, :] = k_sys_row
-                            kv_tensor[phys_blocks_sys, 1, intras_sys, :, :] = v_sys_row
-                        if debug:
-                            kv0 = kv_caches[0]
-                            readback = kv0[int(phys_blocks_sys[0]), 0, int(intras_sys[0]), :, :]
-                            expected = sys_rotated[0, 0, :, :].to(kv0.dtype)
-                            match = torch.allclose(readback, expected, atol=1e-2)
-                            logger.info(
-                                "[CENTROID DEBUG] sys_K write readback match=%s  "
-                                "phys_block=%s  intra=%s  written_norm=%.4f  readback_norm=%.4f",
-                                match, int(phys_blocks_sys[0]), int(intras_sys[0]),
-                                expected.float().norm().item(),
-                                readback.float().norm().item(),
-                            )
+                        _, intras_sys, phys_blocks_sys = slot_info
+                        if int((phys_blocks_sys == null_block_id).any().item()):
+                            continue
+
+                        kv_tensor = kv_caches[layer_idx]
+                        slot_dtype = kv_tensor.dtype
+
+                        k_sys_row = sys_rotated[layer_idx, :sys_fill_len, :, :].to(slot_dtype)
+                        v_sys_row = self.sys_V[layer_idx, :sys_fill_len, :].view(sys_fill_len, num_kv_heads, head_dim).to(slot_dtype)
+                        _write_kv_rows(
+                            kv_tensor,
+                            phys_blocks_sys,
+                            intras_sys,
+                            k_sys_row,
+                            v_sys_row,
+                            layer_block_size,
+                        )
                         wrote_any = True
+
+                    if debug and wrote_any:
+                        dbg_gid, dbg_block_table, dbg_block_size = resolve_layer_kv_group(0)
+                        dbg_blk_cols = pos_idx_sys // dbg_block_size
+                        dbg_intras = pos_idx_sys % dbg_block_size
+                        dbg_phys_blocks = dbg_block_table[seq, dbg_blk_cols]
+                        kv0 = kv_caches[0]
+                        readback = _readback_first_k(
+                            kv0,
+                            int(dbg_phys_blocks[0]),
+                            int(dbg_intras[0]),
+                            dbg_block_size,
+                        )
+                        expected = sys_rotated[0, 0, :, :].to(kv0.dtype)
+                        match = torch.allclose(readback, expected, atol=1e-2)
+                        logger.info(
+                            "[CENTROID DEBUG] sys_K write readback match=%s  "
+                            "phys_block=%s  intra=%s  written_norm=%.4f  readback_norm=%.4f",
+                            match, int(dbg_phys_blocks[0]), int(dbg_intras[0]),
+                            expected.float().norm().item(),
+                            readback.float().norm().item(),
+                        )
 
             # --- 2. Inject Domain Centroid KV ---
             centroid_fill_len = min(self.centroid_len, max(0, prompt_len - self.sys_token_count))
@@ -410,11 +525,13 @@ class CentroidInjector:
                     v_all[:, 0, :, :] = (1.0 - alpha) * v_all[:, 0, :, :] + alpha * sink_v
                 
                 pos_idx_cent = self.sys_token_count + torch.arange(centroid_fill_len, device=dev)
-                blk_cols_cent = pos_idx_cent // block_size
-                intras_cent = pos_idx_cent % block_size
-                phys_blocks_cent = block_table[seq, blk_cols_cent]
+                cent_slot_cache: dict[int, tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
 
                 if rope_dbg and inv < 24 and seq == 0:
+                    dbg_gid, dbg_block_table, dbg_block_size = resolve_layer_kv_group(0)
+                    dbg_blk_cols = pos_idx_cent // dbg_block_size
+                    dbg_intras = pos_idx_cent % dbg_block_size
+                    dbg_phys_blocks = dbg_block_table[seq, dbg_blk_cols]
                     for label, off in (
                         ("centroid_first", 0),
                         ("centroid_mid", centroid_fill_len // 2),
@@ -429,35 +546,62 @@ class CentroidInjector:
                             inv,
                             label,
                             lp,
-                            int(blk_cols_cent[off]),
-                            int(intras_cent[off]),
-                            int(phys_blocks_cent[off]),
+                            int(dbg_blk_cols[off]),
+                            int(dbg_intras[off]),
+                            int(dbg_phys_blocks[off]),
                         )
 
-                if not int((phys_blocks_cent == null_block_id).any().item()):
-                    for layer_idx in range(n_layers):
-                        kv_tensor = kv_caches[layer_idx]
-                        slot_dtype = kv_tensor.dtype
-                        kv_tensor[phys_blocks_cent, 0, intras_cent, :, :] = k_rotated_all[layer_idx].to(slot_dtype)
-                        kv_tensor[phys_blocks_cent, 1, intras_cent, :, :] = v_all[layer_idx].to(slot_dtype)
+                for layer_idx in range(n_layers):
+                    gid, layer_block_table, layer_block_size = resolve_layer_kv_group(layer_idx)
+                    cache_key = gid if gid is not None else -1
+                    slot_info = cent_slot_cache.get(cache_key)
+                    if slot_info is None:
+                        blk_cols_cent = pos_idx_cent // layer_block_size
+                        intras_cent = pos_idx_cent % layer_block_size
+                        phys_blocks_cent = layer_block_table[seq, blk_cols_cent]
+                        slot_info = (blk_cols_cent, intras_cent, phys_blocks_cent)
+                        cent_slot_cache[cache_key] = slot_info
 
-                    if debug:
-                        kv0 = kv_caches[0]
-                        readback = kv0[int(phys_blocks_cent[0]), 0, int(intras_cent[0]), :, :]
-                        expected = k_rotated_all[0, 0, :, :].to(kv0.dtype)
-                        match = torch.allclose(readback, expected, atol=1e-2)
-                        logger.info(
-                            "[CENTROID DEBUG] centroid write readback match=%s  "
-                            "pos=%d  phys_block=%s  intra=%s  phys_blocks_cent[:5]=%s  intras_cent[:5]=%s  "
-                            "written_norm=%.4f  readback_norm=%.4f",
-                            match, int(pos_idx_cent[0]),
-                            int(phys_blocks_cent[0]), int(intras_cent[0]),
-                            phys_blocks_cent[:5].tolist(), intras_cent[:5].tolist(),
-                            expected.float().norm().item(),
-                            readback.float().norm().item(),
-                        )
+                    _, intras_cent, phys_blocks_cent = slot_info
+                    if int((phys_blocks_cent == null_block_id).any().item()):
+                        continue
 
+                    kv_tensor = kv_caches[layer_idx]
+                    slot_dtype = kv_tensor.dtype
+                    _write_kv_rows(
+                        kv_tensor,
+                        phys_blocks_cent,
+                        intras_cent,
+                        k_rotated_all[layer_idx].to(slot_dtype),
+                        v_all[layer_idx].to(slot_dtype),
+                        layer_block_size,
+                    )
                     wrote_any = True
+
+                if debug and wrote_any:
+                    dbg_gid, dbg_block_table, dbg_block_size = resolve_layer_kv_group(0)
+                    dbg_blk_cols = pos_idx_cent // dbg_block_size
+                    dbg_intras = pos_idx_cent % dbg_block_size
+                    dbg_phys_blocks = dbg_block_table[seq, dbg_blk_cols]
+                    kv0 = kv_caches[0]
+                    readback = _readback_first_k(
+                        kv0,
+                        int(dbg_phys_blocks[0]),
+                        int(dbg_intras[0]),
+                        dbg_block_size,
+                    )
+                    expected = k_rotated_all[0, 0, :, :].to(kv0.dtype)
+                    match = torch.allclose(readback, expected, atol=1e-2)
+                    logger.info(
+                        "[CENTROID DEBUG] centroid write readback match=%s  "
+                        "pos=%d  phys_block=%s  intra=%s  phys_blocks_cent[:5]=%s  intras_cent[:5]=%s  "
+                        "written_norm=%.4f  readback_norm=%.4f",
+                        match, int(pos_idx_cent[0]),
+                        int(dbg_phys_blocks[0]), int(dbg_intras[0]),
+                        dbg_phys_blocks[:5].tolist(), dbg_intras[:5].tolist(),
+                        expected.float().norm().item(),
+                        readback.float().norm().item(),
+                    )
 
             if wrote_any and req_id is not None:
                 self._centroid_seeded_req_ids.add(req_id)

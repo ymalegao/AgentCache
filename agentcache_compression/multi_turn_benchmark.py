@@ -51,6 +51,15 @@ def build_messages(system_text: str, history: list[tuple[str, str]], user_text: 
     return msgs
 
 
+def build_prompt_ids(
+    tokenizer, system_text: str, history: list[tuple[str, str]], user_text: str
+) -> list[int]:
+    """Token IDs for full system+history+current user turn."""
+    messages = build_messages(system_text, history, user_text)
+    chat_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    return tokenizer.encode(chat_text, add_special_tokens=False)
+
+
 def build_compression_ids(
     tokenizer, history: list[tuple[str, str]], user_text: str, synthetic_len: int
 ) -> list[int]:
@@ -84,8 +93,10 @@ def build_centroid_env(args: argparse.Namespace) -> dict:
 
 
 def build_server_cmd(args: argparse.Namespace, enable_apc: bool) -> list[str]:
+    vllm_bin = _REPO / "venv" / "bin" / "vllm"
+    vllm_cmd = str(vllm_bin) if vllm_bin.exists() else "vllm"
     cmd = [
-        "vllm", "serve", args.model,
+        vllm_cmd, "serve", args.model,
         "--port", str(args.server_port),
         "--gpu-memory-utilization", str(args.gpu_mem),
         "--max-model-len", str(args.max_model_len),
@@ -263,7 +274,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-tokens",      type=int,  default=1024)
     p.add_argument("--gpu-mem",         type=float, default=0.6)
     p.add_argument("--server-port",     type=int,   default=8000)
-    p.add_argument("--max-model-len",   type=int,   default=16384)
+    p.add_argument("--max-model-len",   type=int,   default=32768)
     return p.parse_args()
 
 
@@ -287,9 +298,14 @@ def main() -> None:
     system_text = Path(args.system_prompt).read_text().strip()
 
     tokenizer = None
-    if args.mode == "synthetic":
+    use_token_ids_for_all_modes = False
+    if args.mode == "synthetic" or "gpt-oss" in args.model.lower() or "gpt_oss" in args.model.lower():
         from transformers import AutoTokenizer
         tokenizer = AutoTokenizer.from_pretrained(args.model)
+        use_token_ids_for_all_modes = (
+            args.mode != "synthetic"
+            and ("gpt-oss" in args.model.lower() or "gpt_oss" in args.model.lower())
+        )
 
     if args.conversation_file:
         raw = json.loads(Path(args.conversation_file).read_text())
@@ -340,6 +356,11 @@ def main() -> None:
                             tokenizer, history, user_text, args.synthetic_len
                         )
                         centroid_tokens_saved = args.synthetic_len
+                    elif use_token_ids_for_all_modes:
+                        prompt_input = build_prompt_ids(
+                            tokenizer, system_text, history, user_text
+                        )
+                        centroid_tokens_saved = 0
                     else:
                         prompt_input = build_messages(system_text, history, user_text)
                         centroid_tokens_saved = 0

@@ -7,7 +7,7 @@ from pathlib import Path
 os.environ["VLLM_CENTROID_SCHEDULER"] = "0"
 os.environ.setdefault("HF_HOME", "/mnt/g/agentcache/hf_cache")
 
-DEFAULT_MODEL_ID = "/mnt/g/agentcache/models/Llama-3.2-1B-Instruct"
+DEFAULT_MODEL_ID = "models/Qwen2.5-7B-Instruct"
 DEFAULT_SYSTEM_PROMPT = "agentcache_compression/prompts/2000_python_agent_system.txt"
 DEFAULT_MAX_TOKENS = 2048
 DEFAULT_TEMPERATURE = 0.9
@@ -251,7 +251,7 @@ def generate_good_example():
     OUTPUT_DIR = "good_examples"
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    output_path = os.path.join(OUTPUT_DIR, "vllm_good_examples_raw_2000.jsonl")
+    output_path = os.path.join(OUTPUT_DIR, "vllm_good_examples_raw_2000_gptoss.jsonl")
 
     existing_data = []
     task_to_index = {}

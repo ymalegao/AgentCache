@@ -1,0 +1,175 @@
+{"index": 0, "task": "I have a Python function that's supposed to return the factorial of a number but it returns wrong results for 0. Here's the code: def factorial(n): if n == 1: return 1 else: return n * factorial(n-1). Fix it.", "good_example": "Here's a thinking process:\n\n1.  **Analyze User Input:**\n   - User provides a Python function for calculating factorial:\n     ```python\n     def factorial(n):\n         if n == 1:\n             return 1\n         else:\n             return n * factorial(n-1)\n     ```\n   - Problem: Returns wrong results for `0`.\n   - Fact: `0!` is defined as `1`.\n   - Current code: When `n=0`, it goes to `else`, calls `0 * factorial(-1)`, which eventually leads to infinite recursion or wrong results. Actually, it will keep recursing with negative numbers until `RecursionError`.\n\n2.  **Identify the Bug:**\n   - The base case only checks for `n == 1`.\n   - It needs to handle `n == 0` (and potentially negative numbers, but factorial is typically defined for non-negative integers).\n   - Standard fix: Change base case to `if n == 0 or n == 1: return 1` or simply `if n <= 1: return 1` (with appropriate input validation if needed).\n\n3.  **Apply Guidelines:**\n   - Write minimum correct code.\n   - Add type hints.\n   - Add a one-line docstring.\n   - Handle edge cases (negative numbers should raise ValueError).\n   - Follow PEP 8.\n   - Provide a short usage example.\n   - End with \"GOODBYE\".\n\n   Let's draft the fixed function:\n   ```python\n   def factorial(n: int) -> int:\n       \"\"\"Return the factorial of a non-negative integer n.\"\"\"\n       if n < 0:\n           raise ValueError(\"Factorial is not defined for negative numbers\")\n       if n <= 1:\n           return 1\n       return n * factorial(n - 1)\n   ```\n\n4.  **Check against constraints:**\n   - Type hints: Yes (`int -> int`)\n   - Docstring: Yes\n   - Handles 0 correctly: Yes (`0 <= 1` returns 1)\n   - Handles negatives: Raises ValueError (good practice)\n   - Minimal: Yes\n   - Usage example: Will add one\n   - Ends with GOODBYE: Will ensure\n\n   Let's refine it slightly to match the recursive style but keep it clean. The guidelines say \"Raise ValueError for invalid arguments\", which fits perfectly.\n\n   Draft:\n   ```python\n   def factorial(n: int) -> int:\n       \"\"\"Return the factorial of a non-negative integer n.\"\"\"\n       if n < 0:\n           raise ValueError(\"Factorial is not defined for negative numbers\")\n       if n <= 1:\n           return 1\n       return n * factorial(n - 1)\n\n   # Usage example\n   if __name__ == \"__main__\":\n       print(factorial(0))  # 1\n       print(factorial(5))  # 120\n   ```\n\n   Wait, the guidelines say: \"Prefer iterative or standard library solutions where appropriate, but recursion is fine for factorial.\" Actually, Python's recursion limit might be an issue for large n, but the user provided a recursive function, so I'll stick to recursion but fix the base case. I could also mention `math.factorial` as a best practice, but the task is to fix *their* code.\n\n   Let's keep it simple and direct. I'll provide the fixed function, explain the fix, and add type hints/docstring as per guidelines.\n\n   Check guidelines: \"Annotate all public function signatures with type hints.\" -> Done.\n   \"Add a one-line docstring to public functions.\" -> Done.\n   \"Raise ValueError for invalid arguments\" -> Done for negatives.\n   \"Include a short usage example when it helps clarify the solution.\" -> Done.\n\n   All good. I'll generate the response.\n   One minor thing: The prompt says \"Fix it.\" I'll just give the corrected code with brief explanation.\n   I'll make sure the code block is clean.\n   I'll end with exactly \"GOODBYE\".\n   Ready. \n   Output matches response.✅\n   Self-Correction/Verification during thought:\n   - Should I use `if n == 0 or n == 1:`? `n <= 1` is cleaner and handles 0 and 1.\n   - Should I handle non-integers? Type hints imply int, but runtime could pass floats. `math.factorial` handles it, but for simplicity, I'll stick to int check or just rely on type hints per standard practice. I'll add a quick type check if needed, but it's usually fine to just document/assume int per guidelines. I'll keep it simple.\n   - The guidelines say \"Raise ValueError for invalid arguments\", so `if n < 0: raise ValueError(...)` is correct.\n   - I'll present the fixed code clearly.\n   - All constraints met.\n   - Output generation. \n   Structure:\n   - Fixed code block\n   - Brief explanation of the fix (base case updated to handle 0, added validation for negatives, added type hints/docstring per best practices)\n   - Usage example\n   - GOODBYE token.✅\n   Proceeds. \n   Output Generation. \n   [Done] \n   *Self-Correction/Refinement during thought*: \n   Wait, the prompt says \"returns wrong results for 0\". The recursive call `0 * factorial(-1)` will indeed cause a `RecursionError` after 1000 calls, not a wrong numeric result. But the user says \"wrong results\", which is fine. I'll just fix it.\n   I'll make sure the code follows all rules.\n   Code:\n   ```python\n   def factorial(n: int) -> int:\n       \"\"\"Return the factorial of a non-negative integer n.\"\"\"\n       if n < 0:\n           raise ValueError(\"Factorial is not defined for negative numbers\")\n       if n <= 1:\n           return 1\n       return n * factorial(n - 1)\n   ```\n   This is solid. I'll output it. \n   All guidelines checked. No extra fluff. Ends with GOODBYE.✅\n   Output matches the response. \n   [Proceeds]\n</think>\n\nThe issue is that your base case only checks for `n == 1`. By definition, `0! = 1`, so the function needs to handle `0` explicitly. Additionally, it should guard against negative inputs to prevent infinite recursion.\n\nHere's the corrected version with type hints, a docstring, and proper edge-case handling:\n\n```python\ndef factorial(n: int) -> int:\n    \"\"\"Return the factorial of a non-negative integer n.\"\"\"\n    if n < 0:\n        raise ValueError(\"Factorial is not defined for negative numbers\")\n    if n <= 1:\n        return 1\n    return n * factorial(n - 1)\n\n# Usage example\nif __name__ == \"__main__\":\n    print(factorial(0))  # 1\n    print(factorial(5))  # 120\n```\n\n**Key fixes:**\n- Changed the base case to `n <= 1` so `factorial(0)` correctly returns `1`.\n- Added a guard for negative numbers to raise a `ValueError` instead of triggering a `RecursionError`.\n- Added type hints and a docstring per standard best practices.\n\nFor production code, consider using `math.factorial(n)` from the standard library, which is implemented in C and handles large inputs more efficiently.\n\nGOODBYE"}
+{"index": 1, "task": "My binary search implementation never finds the target element even when it exists in the list. def binary_search(arr, target): low, high = 0, len(arr) while low < high: mid = (low+high)//2 if arr[mid] == target: return mid elif arr[mid] < target: low = mid else: high = mid return -1. What's wrong?", "good_example": null}
+{"index": 2, "task": "This decorator is supposed to retry a function 3 times on exception but it only tries once. def retry(func): def wrapper(*args): try: return func(*args) except: return func(*args). Fix it.", "good_example": null}
+{"index": 3, "task": "My CSV parser breaks on lines that have commas inside quoted fields. It's splitting on every comma. Fix the parsing logic.", "good_example": null}
+{"index": 4, "task": "I have a race condition in my Python threading code. Two threads are incrementing a shared counter and the final value is always less than expected.", "good_example": null}
+{"index": 5, "task": "Add a timeout parameter to this function that makes an HTTP GET request using the requests library. Right now it hangs forever if the server doesn't respond.", "good_example": null}
+{"index": 6, "task": "I have a function that reads a JSON config file. Add support for environment variable overrides so that any key in the config can be overridden by an env var with the same name uppercased.", "good_example": null}
+{"index": 7, "task": "Extend this basic logging setup to write to both console and a rotating file that caps at 10MB and keeps 3 backups.", "good_example": null}
+{"index": 8, "task": "Add input validation to this Flask endpoint that accepts a JSON body with name, email, and age fields. Return proper 400 errors with messages for missing or invalid fields.", "good_example": null}
+{"index": 9, "task": "I have a script that processes files sequentially. Parallelize it using Python's concurrent.futures so it processes up to 4 files at a time.", "good_example": null}
+{"index": 10, "task": "This function is 200 lines long and does parsing, validation, and database insertion all in one. Break it into smaller functions with single responsibilities.", "good_example": null}
+{"index": 11, "task": "I have 6 nearly identical functions that each handle a different file format (csv, json, xml, yaml, toml, ini). Refactor them into a single function with a format parameter.", "good_example": null}
+{"index": 12, "task": "Replace all the raw SQL string concatenation in this file with parameterized queries to prevent SQL injection.", "good_example": null}
+{"index": 13, "task": "This code uses a global variable to track state between function calls. Refactor it to use a class instead.", "good_example": null}
+{"index": 14, "task": "What is the difference between deepcopy and shallow copy in Python and when would each cause bugs in my code?", "good_example": null}
+{"index": 15, "task": "My Python script is slow when processing a list of 1 million items. Walk me through how to profile it and identify the bottleneck.", "good_example": null}
+{"index": 16, "task": "Explain why my generator function is only iterable once and how to make it reusable.", "good_example": null}
+{"index": 17, "task": "Why does modifying a list inside a function affect the original list outside the function but doing the same with an integer doesn't?", "good_example": null}
+{"index": 18, "task": "Write unit tests for a stack implementation that has push, pop, peek, and is_empty methods. Cover edge cases.", "good_example": null}
+{"index": 19, "task": "I have a function that calls an external payment API. Write tests for it that mock the API so the tests don't make real network calls.", "good_example": null}
+{"index": 20, "task": "My merge sort works on small lists but crashes with RecursionError on large inputs. def merge_sort(arr): if len(arr) <= 1: return arr mid = len(arr)//2; return merge(merge_sort(arr[:mid]), merge_sort(arr[mid:])). Fix it without changing the algorithm.", "good_example": null}
+{"index": 21, "task": "This LRU cache evicts the wrong item when I access keys in a certain order. class LRUCache: def __init__(self, cap): self.cap = cap; self.cache = {}. Fix the eviction logic.", "good_example": null}
+{"index": 22, "task": "My context manager doesn't call __exit__ when an exception happens inside the with block. class MyCtx: def __enter__(self): return self; def __exit__(self): pass. What's missing?", "good_example": null}
+{"index": 23, "task": "datetime.strptime works in tests but fails in production with the same format string. I think it's a timezone issue — help me fix the parsing.", "good_example": null}
+{"index": 24, "task": "My defaultdict-based grouping returns empty lists for keys I never inserted. I expected KeyError for missing keys. Fix or explain and adjust the code.", "good_example": null}
+{"index": 25, "task": "This regex is supposed to validate email addresses but it accepts strings like 'a@b'. r'^[\\w.-]+@[\\w.-]+\\.\\w+$'. Tighten it reasonably for production.", "good_example": null}
+{"index": 26, "task": "My asyncio gather() hangs forever. I create tasks but never await them properly. Here's the snippet — fix it.", "good_example": null}
+{"index": 27, "task": "pickle.loads() works locally but breaks when I load data saved on another machine. Same Python version. What should I change?", "good_example": null}
+{"index": 28, "task": "My pandas groupby drops NaN keys silently. I need those groups included. Fix the aggregation pipeline.", "good_example": null}
+{"index": 29, "task": "This property setter allows negative values on a dataclass field that should be non-negative. Add validation without breaking the dataclass API.", "good_example": null}
+{"index": 30, "task": "My Flask app returns 500 on every POST because request.json is None even when I send JSON. Content-Type is application/json. Debug it.", "good_example": null}
+{"index": 31, "task": "subprocess.run() with shell=True works in terminal but fails when called from cron. Exit code 127. Fix the invocation.", "good_example": null}
+{"index": 32, "task": "My __hash__ and __eq__ are inconsistent and items duplicate in a set. class Point: def __eq__(self, o): return self.x == o.x and self.y == o.y. Fix it.", "good_example": null}
+{"index": 33, "task": "json.dumps() fails on my object with datetime fields. Make it serializable without losing timezone info.", "good_example": null}
+{"index": 34, "task": "My list comprehension builds the wrong structure — I get a flat list instead of pairs. [(x, y) for x in xs for y in ys if x < y] — I wanted nested grouping by x.", "good_example": null}
+{"index": 35, "task": "sqlite3 cursor returns bytes for text columns on Linux but str on Mac in my CI. Normalize the behavior in my wrapper.", "good_example": null}
+{"index": 36, "task": "My @lru_cache on a method caches across all instances incorrectly. Fix the caching so each instance has its own cache.", "good_example": null}
+{"index": 37, "task": "This pathlib code raises FileNotFoundError on Windows but works on Linux for the same relative path. path = Path('data') / 'file.txt'. Fix cross-platform handling.", "good_example": null}
+{"index": 38, "task": "My enum comparison breaks after I reload the module in a Jupyter notebook. class Status(Enum): OK = 1. Help me make comparisons stable.", "good_example": null}
+{"index": 39, "task": "My requests session leaks connections and eventually hits 'Too many open files'. Fix the session usage pattern.", "good_example": null}
+{"index": 40, "task": "Add CLI flags to my argparse script for --dry-run and --verbose without breaking existing positional arguments.", "good_example": null}
+{"index": 41, "task": "Add type hints to this module and make it pass mypy --strict without changing runtime behavior.", "good_example": null}
+{"index": 42, "task": "Add retry with exponential backoff to my boto3 S3 upload function for transient errors.", "good_example": null}
+{"index": 43, "task": "Add a progress bar with tqdm to my file copy loop over thousands of files.", "good_example": null}
+{"index": 44, "task": "Add pydantic models for my FastAPI request/response bodies and migrate the endpoints to use them.", "good_example": null}
+{"index": 45, "task": "Add caching with functools.lru_cache to this expensive pure function, but let me invalidate the cache from CLI.", "good_example": null}
+{"index": 46, "task": "Add structured JSON logging to my script instead of plain print statements, with a log level env var.", "good_example": null}
+{"index": 47, "task": "Add graceful shutdown to my asyncio worker that drains the queue before exiting on SIGTERM.", "good_example": null}
+{"index": 48, "task": "Add pagination to this SQLAlchemy query that currently loads all rows into memory.", "good_example": null}
+{"index": 49, "task": "Add a .env file loader using python-dotenv so local dev doesn't need exported shell vars.", "good_example": null}
+{"index": 50, "task": "Add email validation and password strength checks to my signup form handler before hitting the database.", "good_example": null}
+{"index": 51, "task": "Add rate limiting to my public API endpoint — max 100 requests per minute per API key.", "good_example": null}
+{"index": 52, "task": "Add WebSocket support to my Flask app for live status updates on long-running jobs.", "good_example": null}
+{"index": 53, "task": "Add CSV export to my Django admin list view for the Order model.", "good_example": null}
+{"index": 54, "task": "Add a health check endpoint to my FastAPI service that verifies DB and Redis connectivity.", "good_example": null}
+{"index": 55, "task": "Add automatic migration generation for this Alembic project when I change SQLAlchemy models.", "good_example": null}
+{"index": 56, "task": "Add a context manager that temporarily changes os.environ for tests and restores afterward.", "good_example": null}
+{"index": 57, "task": "Add support for reading gzip-compressed JSONL files in my ETL script without loading everything into RAM.", "good_example": null}
+{"index": 58, "task": "Add a plugin hook system so third parties can register custom processors without editing core code.", "good_example": null}
+{"index": 59, "task": "Add OpenTelemetry tracing spans around my HTTP client calls and database queries.", "good_example": null}
+{"index": 60, "task": "Convert this callback-heavy code to async/await using asyncio and aiohttp instead of nested def callbacks.", "good_example": null}
+{"index": 61, "task": "Replace my hand-rolled singleton with a module-level instance or functools.lru_cache pattern — whichever fits.", "good_example": null}
+{"index": 62, "task": "Extract duplicated try/except logging blocks into a decorator that logs and re-raises.", "good_example": null}
+{"index": 63, "task": "Convert this giant if/elif chain on string types into a dict dispatch table of handler functions.", "good_example": null}
+{"index": 64, "task": "Move all magic numbers and API URLs into a pydantic Settings class loaded from environment.", "good_example": null}
+{"index": 65, "task": "Split this monolithic Django view into a service layer, serializer, and thin view function.", "good_example": null}
+{"index": 66, "task": "Replace manual open()/close() file handling with context managers everywhere in this package.", "good_example": null}
+{"index": 67, "task": "Refactor nested loops over users and orders into a single pandas merge for readability and speed.", "good_example": null}
+{"index": 68, "task": "Convert my procedural data pipeline script into a Click CLI with subcommands for extract, transform, load.", "good_example": null}
+{"index": 69, "task": "Eliminate duplicate pytest fixtures across test files by moving them to conftest.py.", "good_example": null}
+{"index": 70, "task": "Replace inheritance-heavy hierarchy with composition for these notification sender classes.", "good_example": null}
+{"index": 71, "task": "Refactor this God class with 40 methods into smaller mixins or separate collaborator objects.", "good_example": null}
+{"index": 72, "task": "Use dataclasses instead of dicts for these records and update all access sites.", "good_example": null}
+{"index": 73, "task": "Replace print debugging with proper logging and consistent logger names per module.", "good_example": null}
+{"index": 74, "task": "Consolidate three nearly identical Celery tasks into one parameterized task.", "good_example": null}
+{"index": 75, "task": "Refactor synchronous requests calls in my async FastAPI route to use httpx.AsyncClient properly.", "good_example": null}
+{"index": 76, "task": "Extract configuration parsing from business logic in my main() function.", "good_example": null}
+{"index": 77, "task": "Replace stringly-typed status codes with an Enum and update all comparisons.", "good_example": null}
+{"index": 78, "task": "Move inline SQL in this repository class to SQLAlchemy ORM queries.", "good_example": null}
+{"index": 79, "task": "Refactor this pytest module that uses time.sleep into freezegun or monkeypatched clocks.", "good_example": null}
+{"index": 80, "task": "Why does my list.sort() return None but sorted(list) returns a new list? I keep assigning the result of .sort() by mistake.", "good_example": null}
+{"index": 81, "task": "Explain the GIL and whether threading or multiprocessing is better for my CPU-bound image resizing job.", "good_example": null}
+{"index": 82, "task": "What's the difference between __str__ and __repr__ and which should I implement for my custom class?", "good_example": null}
+{"index": 83, "task": "Why does 'is' sometimes fail for small integers but '==' works? When should I never use 'is' for values?", "good_example": null}
+{"index": 84, "task": "Explain how *args and **kwargs work in decorators that need to forward arguments to the wrapped function.", "good_example": null}
+{"index": 85, "task": "What are descriptor protocols and why does @property work on classes but not always on instances the way I expect?", "good_example": null}
+{"index": 86, "task": "Walk me through how importlib and circular imports caused my ModuleNotFoundError at runtime.", "good_example": null}
+{"index": 87, "task": "Explain why mutable default arguments like def f(x=[]) are dangerous with examples from my code.", "good_example": null}
+{"index": 88, "task": "What's the practical difference between asyncio.create_task, ensure_future, and gather?", "good_example": null}
+{"index": 89, "task": "Why does pandas SettingWithCopyWarning appear and how do I fix my chained assignment properly?", "good_example": null}
+{"index": 90, "task": "Explain when to use typing.Protocol vs ABC for duck-typed interfaces in Python 3.11+.", "good_example": null}
+{"index": 91, "task": "What does if __name__ == '__main__' actually do and should my library modules have it?", "good_example": null}
+{"index": 92, "task": "Why does my Docker container see a different PYTHONPATH than my local venv?", "good_example": null}
+{"index": 93, "task": "Explain contextvars and when they're needed instead of thread-local storage in async code.", "good_example": null}
+{"index": 94, "task": "What's the difference between subprocess, os.system, and shelling out — security and portability wise?", "good_example": null}
+{"index": 95, "task": "Write pytest parametrized tests for a function that normalizes phone numbers across US formats.", "good_example": null}
+{"index": 96, "task": "Add integration tests for my Flask app using the test client, including auth headers.", "good_example": null}
+{"index": 97, "task": "Write property-based tests with Hypothesis for a function that reverses a string and claims to be an involution.", "good_example": null}
+{"index": 98, "task": "Mock datetime.now() in tests so my 'expires in 24h' logic is deterministic.", "good_example": null}
+{"index": 99, "task": "Write tests for my custom context manager that acquires a file lock — include timeout behavior.", "good_example": null}
+{"index": 100, "task": "Add snapshot tests for my HTML email template renderer so layout regressions are caught.", "good_example": null}
+{"index": 101, "task": "Write async pytest tests for my aiohttp handler including error responses.", "good_example": null}
+{"index": 102, "task": "Test that my SQLAlchemy model constraints reject invalid data at the DB level using a test database.", "good_example": null}
+{"index": 103, "task": "Add coverage for exception paths in my retry decorator — exhaust retries and verify the last exception propagates.", "good_example": null}
+{"index": 104, "task": "Write a fixture that spins up a temporary SQLite DB, runs migrations, and yields a session.", "good_example": null}
+{"index": 105, "task": "My sklearn Pipeline fails at predict time because the scaler wasn't fit on the same columns. Fix the column mismatch.", "good_example": null}
+{"index": 106, "task": "Add train/val/test split with stratification on the label column in this pandas script.", "good_example": null}
+{"index": 107, "task": "This matplotlib plot labels overlap on the x-axis. Fix the layout for 50+ categories.", "good_example": null}
+{"index": 108, "task": "Convert my Jupyter notebook cells into a proper Python package with a CLI entry point.", "good_example": null}
+{"index": 109, "task": "My torch DataLoader workers crash on Windows with multiprocessing errors. Fix the if __name__ guard pattern.", "good_example": null}
+{"index": 110, "task": "Add early stopping and checkpointing to my PyTorch training loop.", "good_example": null}
+{"index": 111, "task": "Vectorize this slow row-by-row pandas apply() that's killing performance on 2M rows.", "good_example": null}
+{"index": 112, "task": "Fix data leakage: my feature engineering uses the full dataset before the train/test split.", "good_example": null}
+{"index": 113, "task": "Add reproducibility — set random seeds for numpy, random, and torch in one place.", "good_example": null}
+{"index": 114, "task": "Save and load my fitted sklearn model with joblib and version metadata.", "good_example": null}
+{"index": 115, "task": "My Django queryset N+1 queries the related User for every Order. Optimize with select_related or prefetch_related.", "good_example": null}
+{"index": 116, "task": "Add CORS middleware to my FastAPI app for a React frontend on localhost:3000.", "good_example": null}
+{"index": 117, "task": "Fix JWT validation in my middleware — expired tokens still get through.", "good_example": null}
+{"index": 118, "task": "Add idempotency keys to my Stripe webhook handler so duplicate events don't double-charge.", "good_example": null}
+{"index": 119, "task": "My GraphQL resolver returns None for nested fields that should batch-load. Add DataLoader pattern.", "good_example": null}
+{"index": 120, "task": "Implement OAuth2 password flow login endpoint in FastAPI with passlib bcrypt hashing.", "good_example": null}
+{"index": 121, "task": "Add request ID middleware that propagates X-Request-ID to all log lines.", "good_example": null}
+{"index": 122, "task": "Fix my marshmallow schema that silently drops unknown fields — I want strict validation.", "good_example": null}
+{"index": 123, "task": "Add OpenAPI examples to my FastAPI routes for better docs.", "good_example": null}
+{"index": 124, "task": "My gunicorn workers share in-memory cache incorrectly. Move cache to Redis.", "good_example": null}
+{"index": 125, "task": "Fix my pyproject.toml so pip install -e . installs the console script entry point.", "good_example": null}
+{"index": 126, "task": "Add pre-commit hooks for black, ruff, and mypy on this repo.", "good_example": null}
+{"index": 127, "task": "My GitHub Actions workflow fails on 'No module named pytest'. Fix the CI Python setup.", "good_example": null}
+{"index": 128, "task": "Add a Dockerfile for this Flask app with multi-stage build and non-root user.", "good_example": null}
+{"index": 129, "task": "Pin dependencies in requirements.txt and explain how to generate a lockfile with pip-tools.", "good_example": null}
+{"index": 130, "task": "Add tox.ini to run tests on Python 3.10, 3.11, and 3.12.", "good_example": null}
+{"index": 131, "task": "Fix setuptools package discovery — tests are being installed as top-level packages.", "good_example": null}
+{"index": 132, "task": "Add __version__ sourced from importlib.metadata in my library's __init__.py.", "good_example": null}
+{"index": 133, "task": "My poetry project conflicts on transitive dependencies. Resolve the solver error.", "good_example": null}
+{"index": 134, "task": "Add a Makefile target for lint, test, and format in one command.", "good_example": null}
+{"index": 135, "task": "Audit this code for shell injection via user input passed to os.system.", "good_example": null}
+{"index": 136, "task": "Replace pickle with a safe serialization format for data from untrusted sources.", "good_example": null}
+{"index": 137, "task": "Add secrets scanning — move hardcoded API keys to environment variables.", "good_example": null}
+{"index": 138, "task": "Fix timing attack in my manual string comparison of HMAC signatures — use hmac.compare_digest.", "good_example": null}
+{"index": 139, "task": "Add input sanitization before rendering user HTML in my Jinja2 templates.", "good_example": null}
+{"index": 140, "task": "Implement constant-time token comparison for my API key auth middleware.", "good_example": null}
+{"index": 141, "task": "Add connection pooling and statement timeouts to my psycopg2 usage.", "good_example": null}
+{"index": 142, "task": "Fix my code that logs full credit card numbers — mask PANs in logs.", "good_example": null}
+{"index": 143, "task": "Add circuit breaker pattern around my flaky downstream HTTP service.", "good_example": null}
+{"index": 144, "task": "Validate file uploads — restrict extensions, size, and scan magic bytes not just filename.", "good_example": null}
+{"index": 145, "task": "Add subcommands to my Click CLI: ingest, report, and cleanup with shared global options.", "good_example": null}
+{"index": 146, "task": "Parse inconsistent date formats in this CSV column into ISO 8601 datetimes.", "good_example": null}
+{"index": 147, "task": "Watch a directory with watchdog and run my processor when new files appear.", "good_example": null}
+{"index": 148, "task": "Send a Slack webhook notification when my batch job finishes or fails.", "good_example": null}
+{"index": 149, "task": "Add argparse mutual exclusion between --json and --csv output formats.", "good_example": null}
+{"index": 150, "task": "Schedule this script with APScheduler to run every weekday at 9am.", "good_example": null}
+{"index": 151, "task": "Add dry-run mode that prints what would be deleted without deleting.", "good_example": null}
+{"index": 152, "task": "Merge multiple Excel sheets into one dataframe with a source_sheet column.", "good_example": null}
+{"index": 153, "task": "Download files from S3 with progress and resume on interruption.", "good_example": null}
+{"index": 154, "task": "Add signal handlers so Ctrl+C saves partial progress before exit.", "good_example": null}
+{"index": 155, "task": "Profile why my multiprocessing Pool is slower than sequential — fix pickling overhead.", "good_example": null}
+{"index": 156, "task": "Use asyncio.Semaphore to limit concurrent API calls to 10 at a time.", "good_example": null}
+{"index": 157, "task": "Fix deadlock in my code that acquires lock A then lock B in one thread and the reverse in another.", "good_example": null}
+{"index": 158, "task": "Replace busy-wait loop with threading.Event for worker shutdown.", "good_example": null}
+{"index": 159, "task": "Use ProcessPoolExecutor for CPU-bound work and ThreadPoolExecutor for I/O — refactor my mixed pool.", "good_example": null}
+{"index": 160, "task": "Add connection pooling to my psycopg2/asyncpg database access layer.", "good_example": null}
+{"index": 161, "task": "Memoize expensive pure functions with diskcache across process restarts.", "good_example": null}
+{"index": 162, "task": "Batch my INSERT statements into executemany instead of one commit per row.", "good_example": null}
+{"index": 163, "task": "Use __slots__ on a high-volume data class to cut memory usage.", "good_example": null}
+{"index": 164, "task": "Switch from regex to ahocorasick for matching thousands of keywords in log lines.", "good_example": null}
+{"index": 165, "task": "Upgrade this codebase from Python 3.8 to 3.11 and fix deprecated typing imports.", "good_example": null}
+{"index": 166, "task": "Add docstrings and a minimal README example for this internal utility package.", "good_example": null}
+{"index": 167, "task": "Implement a simple plugin loader that imports modules from a plugins/ directory by name.", "good_example": null}
+{"index": 168, "task": "Write a context manager that suppresses specific exceptions for cleanup code only.", "good_example": null}
+{"index": 169, "task": "Add __all__ and make this package importable without exposing private modules.", "good_example": null}
+{"index": 170, "task": "Fix my circular import between models.py and schemas.py by restructuring imports.", "good_example": null}
+{"index": 171, "task": "Implement a tiny in-memory pub/sub EventBus for decoupling components in my app.", "good_example": null}
+{"index": 172, "task": "Add a custom exception hierarchy for my domain errors instead of bare ValueError everywhere.", "good_example": null}
+{"index": 173, "task": "Parse Apache combined log format into structured dicts with a regex or library.", "good_example": null}
+{"index": 174, "task": "Build a minimal REPL that evals Python expressions safely without exec on user strings.", "good_example": null}

@@ -94,8 +94,8 @@ def main():
     ] + common, f"{step} warm_apc")
 
     for N in SYNTHETIC_TOKENS:
-        k_path = centroid_dir / f"N{N}nogb_K.npy"
-        v_path = centroid_dir / f"N{N}nogb_V.npy"
+        k_path = centroid_dir / f"gptossN{N}_K.npy"
+        v_path = centroid_dir / f"gptossN{N}_V.npy"
         if not k_path.exists() or not v_path.exists():
             print(f"\nWARNING: Centroid files for N={N} not found ({k_path}). Skipping synthetic_N{N}.")
             continue
