@@ -245,6 +245,19 @@ class Scheduler(SchedulerInterface):
         ):
             self.connector.bind_gpu_block_pool(self.kv_cache_manager.block_pool)
 
+        # Pre-register centroid prefix blocks in APC so the first synthetic
+        # request gets local cache hits rather than going through the gap path.
+        if self.cache_config.enable_prefix_caching:
+            try:
+                from vllm.centroid_integration import centroid_preregister_prefix_blocks
+                _bp = self.kv_cache_manager.block_pool
+                _group_ids = list(range(len(kv_cache_config.kv_cache_groups)))
+                centroid_preregister_prefix_blocks(_bp, block_size, _group_ids)
+            except Exception:
+                logger.exception(
+                    "[CENTROID] centroid_preregister_prefix_blocks failed; continuing without pre-registration"
+                )
+
         self.use_pp = self.parallel_config.pipeline_parallel_size > 1
         self.use_v2_model_runner = envs.VLLM_USE_V2_MODEL_RUNNER
         self.scheduler_reserve_full_isl = (

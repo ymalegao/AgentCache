@@ -77,25 +77,26 @@ def main():
             "--turns-per-conv",  str(args.turns_per_conv),
         ]
 
-    step = 0
+    # step = 0
 
-    step += 1
-    run([
-        sys.executable, str(MULTI_TURN_SCRIPT),
-        "--mode", "cold",
-        "--synthetic-len", "0",
-    ] + common, f"{step} cold")
+    # step += 1
+    # run([
+    #     sys.executable, str(MULTI_TURN_SCRIPT),
+    #     "--mode", "cold",
+    #     "--synthetic-len", "0",
+    # ] + common, f"{step} cold")
 
-    step += 1
-    run([
-        sys.executable, str(MULTI_TURN_SCRIPT),
-        "--mode", "warm_apc",
-        "--synthetic-len", "0",
-    ] + common, f"{step} warm_apc")
+    # step += 1
+    # run([
+    #     sys.executable, str(MULTI_TURN_SCRIPT),
+    #     "--mode", "warm_apc",
+    #     "--synthetic-len", "0",
+    # ] + common, f"{step} warm_apc")
+    step = 2
 
     for N in SYNTHETIC_TOKENS:
-        k_path = centroid_dir / f"gptossN{N}_K.npy"
-        v_path = centroid_dir / f"gptossN{N}_V.npy"
+        k_path = centroid_dir / f"N{N}_2000_K.npy"
+        v_path = centroid_dir / f"N{N}_2000_V.npy"
         if not k_path.exists() or not v_path.exists():
             print(f"\nWARNING: Centroid files for N={N} not found ({k_path}). Skipping synthetic_N{N}.")
             continue

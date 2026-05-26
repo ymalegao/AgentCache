@@ -89,6 +89,8 @@ def build_centroid_env(args: argparse.Namespace) -> dict:
     env["VLLM_CENTROID_V_PATH"]    = args.centroid_v
     env["VLLM_CENTROID_SYS_TOKENS"] = "0"
     env["VLLM_CENTROID_LAYOUT"]    = "compression"
+    if args.pad_token_id is not None:
+        env["VLLM_CENTROID_PAD_TOKEN_ID"] = str(args.pad_token_id)
     return env
 
 
@@ -264,6 +266,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--centroid-k",      default=str(_EXP / "centroids" / "N64_K.npy"))
     p.add_argument("--centroid-v",      default=str(_EXP / "centroids" / "N64_V.npy"))
     p.add_argument("--synthetic-len",   type=int,   default=64)
+    p.add_argument("--pad-token-id",    type=int,   default=None,
+                   help="Pad token ID used in build_compression_ids. When set, the server "
+                        "pre-registers the centroid prefix in APC so turn-1 shows local cache hits.")
     p.add_argument("--mode",            choices=["cold", "warm_apc", "synthetic"], required=True)
     p.add_argument("--out",             default=str(_EXP / "results" / "multi_turn_benchmark.jsonl"))
     p.add_argument("--conversation-file", default=None,
@@ -292,10 +297,6 @@ def main() -> None:
             raise FileNotFoundError(f"Centroid V not found: {args.centroid_v!r}")
 
     enable_apc = args.mode in ("warm_apc", "synthetic")
-    env = build_centroid_env(args) if args.mode == "synthetic" else os.environ.copy()
-    cmd = build_server_cmd(args, enable_apc)
-
-    system_text = Path(args.system_prompt).read_text().strip()
 
     tokenizer = None
     use_token_ids_for_all_modes = False
@@ -306,6 +307,18 @@ def main() -> None:
             args.mode != "synthetic"
             and ("gpt-oss" in args.model.lower() or "gpt_oss" in args.model.lower())
         )
+
+    # Auto-detect pad token ID from tokenizer so the server can pre-register
+    # centroid prefix blocks in APC (enables turn-1 local cache hits).
+    if args.mode == "synthetic" and args.pad_token_id is None and tokenizer is not None:
+        pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+        if pad_id is not None:
+            args.pad_token_id = pad_id
+
+    env = build_centroid_env(args) if args.mode == "synthetic" else os.environ.copy()
+    cmd = build_server_cmd(args, enable_apc)
+
+    system_text = Path(args.system_prompt).read_text().strip()
 
     if args.conversation_file:
         raw = json.loads(Path(args.conversation_file).read_text())
