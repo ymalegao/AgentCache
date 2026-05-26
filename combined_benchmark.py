@@ -21,24 +21,44 @@ Prerequisites (local):
 
 from __future__ import annotations
 
+import argparse
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from dataclasses import asdict, dataclass, field
 from typing import List
 
-import requests
 from openai import OpenAI
 from tqdm import tqdm
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 REPO_ROOT   = os.path.dirname(os.path.abspath(__file__))
-MODEL       = "meta-llama/Llama-3.2-1B-Instruct"
-PORT        = 8000
-CENTROID_K  = os.path.join(REPO_ROOT, "centroid_K.npy")
-CENTROID_V  = os.path.join(REPO_ROOT, "centroid_V.npy")
+DEFAULT_MODEL = os.environ.get(
+    "AGENTCACHE_MODEL",
+    os.path.join(REPO_ROOT, "models", "Qwen2.5-7B-Instruct"),
+)
+DEFAULT_PORT = 8000
+DEFAULT_CENTROID_K = os.environ.get(
+    "AGENTCACHE_CENTROID_K",
+    os.path.join(REPO_ROOT, "agentcache_compression", "centroids", "Qwen7b_N64_K.npy"),
+)
+DEFAULT_CENTROID_V = os.environ.get(
+    "AGENTCACHE_CENTROID_V",
+    os.path.join(REPO_ROOT, "agentcache_compression", "centroids", "Qwen7b_N64_V.npy"),
+)
+DEFAULT_MAX_MODEL_LEN = 32768
+DEFAULT_GPU_MEMORY_UTILIZATION = 0.40
+MODEL       = DEFAULT_MODEL
+PORT        = DEFAULT_PORT
+CENTROID_K  = DEFAULT_CENTROID_K
+CENTROID_V  = DEFAULT_CENTROID_V
+MAX_MODEL_LEN = DEFAULT_MAX_MODEL_LEN
+GPU_MEMORY_UTILIZATION = DEFAULT_GPU_MEMORY_UTILIZATION
 LMCACHE_YAML = "/tmp/agentcache_lmcache.yaml"
 RESULTS_DIR = os.path.join(REPO_ROOT, "results_combined")
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -46,7 +66,7 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 # ── Centroid length cap ────────────────────────────────────────────────────────
 # centroid_K.npy has 64 virtual tokens. Reduce if output quality is low.
 # Must be in range [1, 64].
-CENTROID_LEN = 32  # tokens to inject (tune: try 16, 32, 48, 64)
+CENTROID_LEN = 64  # tokens to inject (tune: try 16, 32, 48, 64)
 
 # ── Agent system prompts — must match notebook exactly ─────────────────────────
 CODING_SYSTEM = (
@@ -295,6 +315,25 @@ PROMPTS = (
     [{"agent": "coding", "query": q} for q in CODING_QUERIES]
     + [{"agent": "search", "query": q} for q in SEARCH_QUERIES]
 )
+CONDITIONS = ("cold", "lmcache", "centroid", "combined")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--centroid-k", default=DEFAULT_CENTROID_K)
+    parser.add_argument("--centroid-v", default=DEFAULT_CENTROID_V)
+    parser.add_argument("--max-model-len", type=int, default=DEFAULT_MAX_MODEL_LEN)
+    parser.add_argument("--gpu-memory-utilization", type=float, default=DEFAULT_GPU_MEMORY_UTILIZATION)
+    parser.add_argument("--num-rounds", type=int, default=2)
+    parser.add_argument("--start-from", choices=CONDITIONS, default="cold")
+    parser.add_argument("--only", choices=CONDITIONS)
+    return parser.parse_args()
+
+
+def has_lmcache() -> bool:
+    return importlib.util.find_spec("lmcache") is not None
 
 
 # ── LMCache config ─────────────────────────────────────────────────────────────
@@ -318,10 +357,12 @@ def _env(use_lmcache: bool, use_centroid: bool) -> dict:
         env["VLLM_CENTROID_V_PATH"]     = CENTROID_V
         env["VLLM_CENTROID_SCHEDULER"]  = "1"
         env["VLLM_CENTROID_SYS_TOKENS"] = "0"
+        env["VLLM_CENTROID_LAYOUT"]     = "compression"
         env["VLLM_CENTROID_LEN"]        = str(CENTROID_LEN)
     else:
         for k in ("VLLM_CENTROID_K_PATH", "VLLM_CENTROID_V_PATH",
                   "VLLM_CENTROID_SCHEDULER", "VLLM_CENTROID_SYS_TOKENS",
+                  "VLLM_CENTROID_LAYOUT",
                   "VLLM_CENTROID_LEN"):
             env.pop(k, None)
     env.pop("VLLM_CENTROID_USE_LMCACHE", None)
@@ -329,11 +370,13 @@ def _env(use_lmcache: bool, use_centroid: bool) -> dict:
 
 
 def _cmd(use_lmcache: bool, use_centroid: bool = False) -> list:
+    vllm_bin = os.path.join(REPO_ROOT, "venv", "bin", "vllm")
+    vllm_cmd = vllm_bin if os.path.exists(vllm_bin) else "vllm"
     cmd = [
-        sys.executable, "-m", "vllm.entrypoints.openai.api_server",
-        "--model", MODEL, "--port", str(PORT),
-        "--max-model-len", "4096",
-        "--gpu-memory-utilization", "0.85",
+        vllm_cmd, "serve", MODEL,
+        "--port", str(PORT),
+        "--max-model-len", str(MAX_MODEL_LEN),
+        "--gpu-memory-utilization", str(GPU_MEMORY_UTILIZATION),
     ]
     # APC needed for any caching condition so the growing conversation
     # prefix is reused across turns (centroid-only: GPU APC only;
@@ -360,11 +403,15 @@ def start_server(use_lmcache: bool, use_centroid: bool, label: str):
 def wait_ready(timeout: int = 600) -> bool:
     print("Waiting for vLLM...", end="", flush=True)
     for i in range(timeout // 5):
+        if SERVER_PROC is not None and SERVER_PROC.poll() is not None:
+            print(" exited.")
+            return False
         try:
-            if requests.get(f"http://localhost:{PORT}/health", timeout=2).status_code == 200:
-                print(" ready.")
-                return True
-        except Exception:
+            with urllib.request.urlopen(f"http://localhost:{PORT}/health", timeout=2) as response:
+                if response.status == 200:
+                    print(" ready.")
+                    return True
+        except (urllib.error.URLError, TimeoutError, OSError):
             pass
         if i % 12 == 11:
             print(f" {(i+1)*5}s...", end="", flush=True)
@@ -381,6 +428,9 @@ def kill_server(proc):
         proc.kill()
     time.sleep(3)
     print("vLLM stopped.")
+
+
+SERVER_PROC = None
 
 
 # ── Benchmark helpers ──────────────────────────────────────────────────────────
@@ -418,6 +468,16 @@ class BenchmarkResult:
             json.dump({"config": self.config_name,
                        "requests": [asdict(r) for r in self.requests]}, f, indent=2)
         print(f"Saved: {path}")
+
+
+def load_result(path: str) -> BenchmarkResult | None:
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        payload = json.load(f)
+    result = BenchmarkResult(config_name=payload["config"])
+    result.requests = [RequestResult(**req) for req in payload.get("requests", [])]
+    return result
 
 
 def build_messages(system_text: str, history: list, user_text: str) -> list:
@@ -487,16 +547,24 @@ def run_benchmark(config_name: str, num_rounds: int = 2) -> BenchmarkResult:
 
 
 def run_condition(label: str, use_lmcache: bool, use_centroid: bool, num_rounds: int = 2):
+    if use_lmcache and not has_lmcache():
+        print("ERROR: LMCache mode requested, but Python package `lmcache` is not installed in this environment.")
+        print("Install it in the same venv used by vLLM, then restart with --start-from lmcache.")
+        return None
     print(f"\n{'='*60}\nCondition: {label}  (lmcache={use_lmcache}, centroid={use_centroid})\n{'='*60}")
+    global SERVER_PROC
     proc = start_server(use_lmcache, use_centroid, label)
+    SERVER_PROC = proc
     if not wait_ready():
         print(f"ERROR: check {RESULTS_DIR}/vllm_{label}.log")
         kill_server(proc)
+        SERVER_PROC = None
         return None
     result = run_benchmark(label, num_rounds)
     result.summary()
     result.save(os.path.join(RESULTS_DIR, f"results_{label}.json"))
     kill_server(proc)
+    SERVER_PROC = None
     return result
 
 
@@ -605,26 +673,52 @@ def plot_results(all_results: dict):
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 def main():
+    global MODEL, PORT, CENTROID_K, CENTROID_V, MAX_MODEL_LEN, GPU_MEMORY_UTILIZATION
+
+    args = parse_args()
+    MODEL = args.model
+    PORT = args.port
+    CENTROID_K = args.centroid_k
+    CENTROID_V = args.centroid_v
+    MAX_MODEL_LEN = args.max_model_len
+    GPU_MEMORY_UTILIZATION = args.gpu_memory_utilization
+
     if not os.path.exists(CENTROID_K):
         print(f"ERROR: {CENTROID_K} not found.")
-        print("Copy centroid_K.npy and centroid_V.npy to the repo root.")
+        print("Set AGENTCACHE_CENTROID_K / AGENTCACHE_CENTROID_V or place the Qwen N64 centroids in agentcache_compression/centroids/.")
         sys.exit(1)
 
     write_lmcache_config()
 
-    result_cold     = run_condition("cold",     use_lmcache=False, use_centroid=False)
-    result_lmcache  = run_condition("lmcache",  use_lmcache=True,  use_centroid=False)
-    result_centroid = run_condition("centroid", use_lmcache=False, use_centroid=True)
-    result_combined = run_condition("combined", use_lmcache=True,  use_centroid=True)
+    condition_specs = [
+        ("cold", False, False),
+        ("lmcache", True, False),
+        ("centroid", False, True),
+        ("combined", True, True),
+    ]
+    if args.only is not None:
+        selected = next(spec for spec in condition_specs if spec[0] == args.only)
+        all_results: dict[str, BenchmarkResult] = {}
+        result = run_condition(selected[0], use_lmcache=selected[1], use_centroid=selected[2], num_rounds=args.num_rounds)
+        if result is not None:
+            all_results[selected[0]] = result
+            plot_results(all_results)
+        return
 
-    all_results = {
-        label: res for label, res in [
-            ("cold",     result_cold),
-            ("lmcache",  result_lmcache),
-            ("centroid", result_centroid),
-            ("combined", result_combined),
-        ] if res is not None
-    }
+    start_idx = CONDITIONS.index(args.start_from)
+    all_results: dict[str, BenchmarkResult] = {}
+
+    for label in CONDITIONS[:start_idx]:
+        path = os.path.join(RESULTS_DIR, f"results_{label}.json")
+        existing = load_result(path)
+        if existing is not None:
+            all_results[label] = existing
+            print(f"Loaded existing result for {label}: {path}")
+
+    for label, use_lmcache, use_centroid in condition_specs[start_idx:]:
+        result = run_condition(label, use_lmcache=use_lmcache, use_centroid=use_centroid, num_rounds=args.num_rounds)
+        if result is not None:
+            all_results[label] = result
 
     plot_results(all_results)
 
