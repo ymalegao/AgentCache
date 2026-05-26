@@ -1,0 +1,20 @@
+# AgentCache — macOS / Apple Silicon (MPS) port.
+# No vLLM: this deployment runs the trained PEFT prefix through HuggingFace
+# Transformers on the Metal (MPS) backend. See README.md.
+#
+# Pinned to match the main project's adapter format (PeftModel.get_prompt() and
+# adapter_config.json fields must line up with agentcache_compression/).
+torch>=2.5.1            # MPS backend; torch.mps.synchronize for honest TTFT timing
+transformers==5.7.0
+peft==0.19.1
+datasets==4.8.5
+accelerate
+huggingface-hub
+tiktoken
+
+# Quantized-inference axis (int8 / int4 weight-only on the HF forward path, so
+# past_key_values prefix injection still works). int4 on MPS may be partial.
+torchao
+
+# Optional: ROUGE-L vs cold baseline in analyze step.
+rouge-score

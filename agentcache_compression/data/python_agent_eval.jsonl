@@ -1,0 +1,25 @@
+{"id": "ex_48", "user": "Add pagination to this SQLAlchemy query that currently loads all rows into memory.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_156", "user": "Use asyncio.Semaphore to limit concurrent API calls to 10 at a time.", "checks": {"must_include_any": [["async", "await", "asyncio"], ["thread", "concurrent", "lock", "queue"], ["requests", "http", "endpoint", "url"]]}}
+{"id": "ex_105", "user": "My sklearn Pipeline fails at predict time because the scaler wasn't fit on the same columns. Fix the column mismatch.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_61", "user": "Replace my hand-rolled singleton with a module-level instance or functools.lru_cache pattern \u2014 whichever fits.", "checks": {"must_include_any": [["def ", "functools", "wrapper", "@"]]}}
+{"id": "ex_70", "user": "Replace inheritance-heavy hierarchy with composition for these notification sender classes.", "checks": {"must_include_any": [["class ", "def __init__"]]}}
+{"id": "ex_170", "user": "Fix my circular import between models.py and schemas.py by restructuring imports.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_90", "user": "Explain when to use typing.Protocol vs ABC for duck-typed interfaces in Python 3.11+.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_75", "user": "Refactor synchronous requests calls in my async FastAPI route to use httpx.AsyncClient properly.", "checks": {"must_include_any": [["async", "await", "asyncio"], ["requests", "http", "endpoint", "url"]]}}
+{"id": "ex_132", "user": "Add __version__ sourced from importlib.metadata in my library's __init__.py.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_46", "user": "Add structured JSON logging to my script instead of plain print statements, with a log level env var.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_123", "user": "Add OpenAPI examples to my FastAPI routes for better docs.", "checks": {"must_include_any": [["open(", "with open", ".read(", ".write("], ["requests", "http", "endpoint", "url"]]}}
+{"id": "ex_78", "user": "Move inline SQL in this repository class to SQLAlchemy ORM queries.", "checks": {"must_include_any": [["class ", "def __init__"]]}}
+{"id": "ex_79", "user": "Refactor this pytest module that uses time.sleep into freezegun or monkeypatched clocks.", "checks": {"must_include_any": [["def test_", "assert", "pytest"], ["thread", "concurrent", "lock", "queue"]]}}
+{"id": "ex_49", "user": "Add a .env file loader using python-dotenv so local dev doesn't need exported shell vars.", "checks": {"must_include_any": [["open(", "with open", ".read(", ".write("]]}}
+{"id": "ex_152", "user": "Merge multiple Excel sheets into one dataframe with a source_sheet column.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_35", "user": "sqlite3 cursor returns bytes for text columns on Linux but str on Mac in my CI. Normalize the behavior in my wrapper.", "checks": {"must_include_any": [["def ", "functools", "wrapper", "@"]]}}
+{"id": "ex_163", "user": "Use __slots__ on a high-volume data class to cut memory usage.", "checks": {"must_include_any": [["class ", "def __init__"], ["@dataclass", "dataclass"]]}}
+{"id": "ex_84", "user": "Explain how *args and **kwargs work in decorators that need to forward arguments to the wrapped function.", "checks": {"must_include_any": [["def ", "functools", "wrapper", "@"]]}}
+{"id": "ex_98", "user": "Mock datetime.now() in tests so my 'expires in 24h' logic is deterministic.", "checks": {"must_include_any": [["def test_", "assert", "pytest"]]}}
+{"id": "ex_45", "user": "Add caching with functools.lru_cache to this expensive pure function, but let me invalidate the cache from CLI.", "checks": {"must_include_any": [["def ", "functools", "wrapper", "@"]]}}
+{"id": "ex_151", "user": "Add dry-run mode that prints what would be deleted without deleting.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_1", "user": "My binary search implementation never finds the target element even when it exists in the list. def binary_search(arr, target): low, high = 0, len(arr) while low < high: mid = (low+high)//2 if arr[mid] == target: return mid elif arr[mid] < target: low = mid else: high = mid return -1. What's wrong?", "checks": {"must_include_any": [["def ", "return"]]}}
+{"id": "ex_86", "user": "Walk me through how importlib and circular imports caused my ModuleNotFoundError at runtime.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_109", "user": "My torch DataLoader workers crash on Windows with multiprocessing errors. Fix the if __name__ guard pattern.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_37", "user": "This pathlib code raises FileNotFoundError on Windows but works on Linux for the same relative path. path = Path('data') / 'file.txt'. Fix cross-platform handling.", "checks": {"must_include_any": [["open(", "with open", ".read(", ".write("]]}}

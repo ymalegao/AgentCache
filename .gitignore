@@ -3,4 +3,7 @@ vllm-env/.dual-graph/
 .dual-graph/
 vllm-env/
 agentcache_compression/adapters/
+agentcache_mac/adapters/
+agentcache_mac/results/
+venv-mac/
 baseline_state_old

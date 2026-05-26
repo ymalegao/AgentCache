@@ -1,144 +1,97 @@
-# CLAUDE.md — 12-rule template
+# CLAUDE.md
 
-These rules apply to every task in this project unless explicitly overridden.
-Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Rule 1 — Think Before Coding
-State assumptions explicitly. If uncertain, ask rather than guess.
-Present multiple interpretations when ambiguity exists.
-Push back when a simpler approach exists.
-Stop when confused. Name what's unclear.
+## Project
 
-## Rule 2 — Simplicity First
-Minimum code that solves the problem. Nothing speculative.
-No features beyond what was asked. No abstractions for single-use code.
-Test: would a senior engineer say this is overcomplicated? If yes, simplify.
+AgentCache eliminates the TTFT prefill bottleneck for domain-specific agents by training a PEFT prefix adapter, materializing it to raw K/V tensors, and seeding those tensors directly into vLLM's KV cache so the scheduler can skip prefill for the synthetic prefix.
 
-## Rule 3 — Surgical Changes
-Touch only what you must. Clean up only your own mess.
-Don't "improve" adjacent code, comments, or formatting.
-Don't refactor what isn't broken. Match existing style.
+Targets: **Llama-3.2-1B-Instruct** (current) and **Qwen-1.5B** (older Qwen adapters in `qwen15_64/`, `qwen15_256/`). See `HANDOFF.md` for the latest validation state — it is the authoritative status doc.
 
-## Rule 4 — Goal-Driven Execution
-Define success criteria. Loop until verified.
-Don't follow steps. Define success and iterate.
-Strong success criteria let you loop independently.
+## Pipeline
 
-## Rule 5 — Use the model only for judgment calls
-Use me for: classification, drafting, summarization, extraction.
-Do NOT use me for: routing, retries, deterministic transforms.
-If code can answer, code answers.
-
-## Rule 6 — Token budgets are not advisory
-Per-task: 4,000 tokens. Per-session: 30,000 tokens.
-If approaching budget, summarize and start fresh.
-Surface the breach. Do not silently overrun.
-
-## Rule 7 — Surface conflicts, don't average them
-If two patterns contradict, pick one (more recent / more tested).
-Explain why. Flag the other for cleanup.
-Don't blend conflicting patterns.
-
-## Rule 8 — Read before you write
-Before adding code, read exports, immediate callers, shared utilities.
-"Looks orthogonal" is dangerous. If unsure why code is structured a way, ask.
-
-## Rule 9 — Tests verify intent, not just behavior
-Tests must encode WHY behavior matters, not just WHAT it does.
-A test that can't fail when business logic changes is wrong.
-
-## Rule 10 — Checkpoint after every significant step
-Summarize what was done, what's verified, what's left.
-Don't continue from a state you can't describe back.
-If you lose track, stop and restate.
-
-## Rule 11 — Match the codebase's conventions, even if you disagree
-Conformance > taste inside the codebase.
-If you genuinely think a convention is harmful, surface it. Don't fork silently.
-
-## Rule 12 — Fail loud
-"Completed" is wrong if anything was skipped silently.
-"Tests pass" is wrong if any were skipped.
-Default to surfacing uncertainty, not hiding it
-
-<!-- dgc-policy-v11 -->
-# Dual-Graph Context Policy
-
-This project uses a local dual-graph MCP server for efficient context retrieval.
-
-## MANDATORY: Always follow this order
-
-1. **Call `graph_continue` first** — before any file exploration, grep, or code reading.
-
-2. **If `graph_continue` returns `needs_project=true`**: call `graph_scan` with the
-   current project directory (`pwd`). Do NOT ask the user.
-
-3. **If `graph_continue` returns `skip=true`**: project has fewer than 5 files.
-   Do NOT do broad or recursive exploration. Read only specific files if their names
-   are mentioned, or ask the user what to work on.
-
-4. **Read `recommended_files`** using `graph_read` — **one call per file**.
-   - `graph_read` accepts a single `file` parameter (string). Call it separately for each
-     recommended file. Do NOT pass an array or batch multiple files into one call.
-   - `recommended_files` may contain `file::symbol` entries (e.g. `src/auth.ts::handleLogin`).
-     Pass them verbatim to `graph_read(file: "src/auth.ts::handleLogin")` — it reads only
-     that symbol's lines, not the full file.
-   - Example: if `recommended_files` is `["src/auth.ts::handleLogin", "src/db.ts"]`,
-     call `graph_read(file: "src/auth.ts::handleLogin")` and `graph_read(file: "src/db.ts")`
-     as two separate calls (they can be parallel).
-
-5. **Check `confidence` and obey the caps strictly:**
-   - `confidence=high` -> Stop. Do NOT grep or explore further.
-   - `confidence=medium` -> If recommended files are insufficient, call `fallback_rg`
-     at most `max_supplementary_greps` time(s) with specific terms, then `graph_read`
-     at most `max_supplementary_files` additional file(s). Then stop.
-   - `confidence=low` -> Call `fallback_rg` at most `max_supplementary_greps` time(s),
-     then `graph_read` at most `max_supplementary_files` file(s). Then stop.
-
-## Token Usage
-
-A `token-counter` MCP is available for tracking live token usage.
-
-- To check how many tokens a large file or text will cost **before** reading it:
-  `count_tokens({text: "<content>"})`
-- To log actual usage after a task completes (if the user asks):
-  `log_usage({input_tokens: <est>, output_tokens: <est>, description: "<task>"})`
-- To show the user their running session cost:
-  `get_session_stats()`
-
-Live dashboard URL is printed at startup next to "Token usage".
-
-## Rules
-
-- Do NOT use `rg`, `grep`, or bash file exploration before calling `graph_continue`.
-- Do NOT do broad/recursive exploration at any confidence level.
-- `max_supplementary_greps` and `max_supplementary_files` are hard caps - never exceed them.
-- Do NOT dump full chat history.
-- Do NOT call `graph_retrieve` more than once per turn.
-- After edits, call `graph_register_edit` with the changed files. Use `file::symbol` notation (e.g. `src/auth.ts::handleLogin`) when the edit targets a specific function, class, or hook.
-
-## Context Store
-
-Whenever you make a decision, identify a task, note a next step, fact, or blocker during a conversation, call `graph_add_memory`.
-
-**To add an entry:**
 ```
-graph_add_memory(type="decision|task|next|fact|blocker", content="one sentence max 15 words", tags=["topic"], files=["relevant/file.ts"])
+generate_tasks.py / generate_good_examples.py   →   good_examples/*.jsonl
+prefixtraining.py        →   agentcache_prefix_model/ (PEFT adapter)
+transpose_tensors.py     →   centroid_K.npy, centroid_V.npy, sys_prefix_num_tokens.txt
+vLLM (env-var driven)    →   test_injection.py / benchmark_ttft.py
 ```
 
-**Do NOT write context-store.json directly** — always use `graph_add_memory`. It applies pruning and keeps the store healthy.
+| Stage | File | Output |
+|---|---|---|
+| Train | `prefixtraining.py` | `agentcache_prefix_model/adapter_model.safetensors` |
+| Export | `transpose_tensors.py` | `centroid_{K,V}.npy` shape `[num_layers, N, kv_dim]` |
+| Test | `test_injection.py` | Cold vs inject TTFT + coherence check |
+| Benchmark | `benchmark_ttft.py` (via `run_benchmark.sh`) | Cold / APC / Inject TTFT |
 
-**Rules:**
-- Only log things worth remembering across sessions (not every minor detail)
-- `content` must be under 15 words
-- `files` lists the files this decision/task relates to (can be empty)
-- Log immediately when the item arises — not at session end
+`precompute_sys.py` is a legacy exact-system-prompt KV path (Qwen-only, pre-PEFT); the current pipeline does **not** use it.
 
-## Session End
+## Commands
 
-When the user signals they are done (e.g. "bye", "done", "wrap up", "end session"), proactively update `CONTEXT.md` in the project root with:
-- **Current Task**: one sentence on what was being worked on
-- **Key Decisions**: bullet list, max 3 items
-- **Next Steps**: bullet list, max 3 items
+All Python entry points assume the vLLM virtualenv on the deploy host (not this checkout):
 
-Keep `CONTEXT.md` under 20 lines total. Do NOT summarize the full conversation — only what's needed to resume next session.
+```bash
+cd /home/yash/agentcache && source vllm-env/bin/activate
+
+# Train
+python prefixtraining.py
+
+# Export (pure-PEFT layout, gap = N only)
+python transpose_tensors.py --sys-tokens 0
+
+# Smoke test injection (cold vs inject TTFT + output)
+python test_injection.py
+
+# Full A/B benchmark (Cold / APC / Inject)
+./run_benchmark.sh
+```
+
+Single-purpose smoke scripts: `test.py`, `test_att.py`, `test_cold.py`, `test_tokens.py`.
+
+## vLLM integration
+
+The vLLM modifications live in two places:
+
+- **In this repo** (`vllm/`): the canonical source of the patches — `centroid_injector.py`, `centroid_integration.py`, `v1/core/sched/scheduler.py`, `v1/worker/gpu_model_runner.py`, `v1/worker/gpu/model_runner.py`. Edit these.
+- **In the installed package** (deploy host): `vllm-env/lib/python3.10/site-packages/vllm/...`. Runtime reads from here — patches must be copied over.
+
+Flow per request:
+1. `try_load_centroid_injector` loads `.npy` at runner startup.
+2. Scheduler calls `centroid_sched_gap` to inflate `num_computed_tokens` by `gap = sys_token_count + centroid_len`, tricking the engine into treating the prefix as already prefilled.
+3. Runner calls `apply_centroid_block_table` which invokes `seed_prefix_into_kv_cache` — writes K/V into block 0 with RoPE applied at the offset positions, then tracks the request id so it doesn't reseed on chunked-prefill / decode steps.
+
+`vllm_centroid_changes.md` has the per-file change description.
+
+## Critical constraints (do not regress)
+
+- **Export path for `prefix_projection=True` MUST use `PeftModel.get_prompt()`** (see `transpose_tensors.py` lines 40–102). Manual `PrefixEncoder` reconstruction produces drift from the runtime cache and garbled output. Do not "simplify" this back to a direct safetensors reshape.
+- **Prompt length guard:** scheduler `gap = sys_token_count + centroid_len`. If `prompt_tokens ≤ gap + MIN_TOKENS_AFTER_GAP` (default 32), `test_injection.py` aborts. N must be ≪ prompt_len.
+- **Slicing centroids is not equivalent to retraining at smaller N** — `K[:, :64]` from a 256-token adapter is wrong. Retrain instead.
+- **No dummy prompt padding** for Llama. The deprecated `inject_ids = [bos] * N + physical_ids` Llama workaround was removed; do not revive it. Llama and Qwen use the same `apply_chat_template` prompt for cold and inject.
+- **GQA shape:** centroids are `[num_layers, N, num_kv_heads * head_dim]`, *not* `num_attention_heads * head_dim`. For Llama-3.2-1B that's `[16, N, 512]` (8 KV heads × 64 head_dim). On any new model, read `num_kv_heads` from the model config, **not** from `adapter_config.json`.
+- **MLA architectures (DeepSeek-V2/V3/Coder-V2) are unsupported** — the KV layout is fundamentally different. Add an explicit architecture check before exporting; do not silently produce nonsense tensors.
+
+## Env vars
+
+| Var | Typical | Meaning |
+|---|---|---|
+| `VLLM_CENTROID_SCHEDULER` | `1` inject / `0` cold | Enable scheduler skip + injector seed |
+| `VLLM_CENTROID_K_PATH` / `_V_PATH` | abs path to `.npy` | Centroid tensors |
+| `VLLM_CENTROID_SYS_TOKENS` | `0` (pure PEFT) | Overrides `sys_prefix_num_tokens.txt`; `gap = this + centroid_len` |
+| `VLLM_CENTROID_USE_LMCACHE` | `0` | Skip exact-sys path (LMCache handles it) |
+| `VLLM_EXACT_SYS_K_PATH` / `_V_PATH` | unset | Optional exact system-prompt KV alongside PEFT prefix |
+| `VLLM_CENTROID_SINK_BLEND` | `0.35` | Blend factor for attention-sink slot |
+| `CENTROID_PERF_DEBUG` | `0` for benchmarks | Engine perf logs |
+| `CENTROID_DEBUG_ROPE` / `CENTROID_DEBUG` | `0` for benchmarks | Verbose per-step logs (heavy GPU sync — distorts TTFT) |
+| `CENTROID_TIMING` | `0` | Wall-clock per injection (`1` or `cuda`) |
+
+## Conventions
+
+- Adapter / centroid artifacts live at the repo root; the legacy `attention_centroid_output/` path referenced in some scripts is from the older Qwen exact-sys flow and may not exist.
+- Training data is `good_examples/vllm_good_examples_raw.jsonl` (Llama-targeted). The unprefixed `good_examples.jsonl` is older.
+- `personas/user*.yaml` + `generate_tasks.py` produce perturbed-persona inputs; `generate_good_examples.py` then runs plain vLLM (no injection) to produce training targets.
+- The benchmark / test scripts reference absolute paths under `/home/yash/agentcache/` and `/mnt/g/agentcache/models/` — these are deploy-host paths, not portable.
+
+## When validating changes
+
+`test_injection.py`'s built-in `_is_coherent` heuristic only checks word-likeness, **not** task correctness. For real quality regressions, eyeball the output against the cold baseline (does it mention `time`, timing, a context manager / `__enter__`/`__exit__`?). See `HANDOFF.md` § "Validation results" for the reference 64-token Llama output.
