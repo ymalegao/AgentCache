@@ -189,7 +189,9 @@ def _centroid_sched_check_once() -> tuple[bool, int]:
         from vllm.centroid_injector import load_sys_prefix_token_count
 
         k_np = np.load(k, mmap_mode='r')
-        centroid_len = k_np.shape[1] if k_np.ndim == 3 else 1
+        raw_len = k_np.shape[1] if k_np.ndim == 3 else 1
+        cap = int(os.environ.get("VLLM_CENTROID_LEN", raw_len))
+        centroid_len = min(cap, raw_len)
         sys_count = load_sys_prefix_token_count(k)
 
         has_exact_sys = bool(os.environ.get("VLLM_EXACT_SYS_K_PATH"))
@@ -294,9 +296,12 @@ def try_load_centroid_injector(
         if log_missing_file:
             logger.warning("CentroidInjector not loaded, file not found: %s", k)
         return None
+    k2 = os.environ.get("VLLM_CENTROID_K_PATH_2")
+    v2 = os.environ.get("VLLM_CENTROID_V_PATH_2")
     try:
-        inj = CentroidInjector(k, v, device=device)
-        logger.info("CentroidInjector loaded: %s", k)
+        inj = CentroidInjector(k, v, device=device, centroid_K_path_2=k2, centroid_V_path_2=v2)
+        logger.info("CentroidInjector loaded: %s%s", k,
+                    f" + secondary: {k2}" if k2 else "")
         return inj
     except Exception:
         logger.exception("CentroidInjector failed to load from %s", k)
@@ -604,3 +609,120 @@ def apply_centroid_block_table(
         _centroid_timing_apply_calls[0] = idx + 1
 
     return block_table
+
+
+# ---------------------------------------------------------------------------
+# Startup-time APC pre-registration for centroid prefix blocks
+# ---------------------------------------------------------------------------
+
+def centroid_preregister_prefix_blocks(
+    block_pool: Any,
+    block_size: int,
+    kv_cache_group_ids: list[int],
+) -> int:
+    """Pre-register centroid prefix blocks in vLLM's APC at scheduler startup.
+
+    Populates the prefix cache hash table with the centroid pad-token blocks so
+    that the very first synthetic request sees local APC hits (prefix_cache_hits
+    increments) rather than relying solely on the external-computed-token gap path.
+
+    Requires VLLM_CENTROID_PAD_TOKEN_ID to be set; otherwise this is a no-op.
+    KV data is uninitialized at registration time — the GPU worker writes the
+    correct centroid tensors on the first forward pass (same as today).
+    Subsequent requests get true APC hits and the GPU worker re-writes the same
+    idempotent data.
+
+    Returns the number of blocks registered (0 if skipped).
+    """
+    enabled, total_len = _centroid_sched_check_once()
+    if not enabled or total_len <= 0:
+        return 0
+
+    if not block_pool.enable_caching:
+        logger.info("[CENTROID] APC disabled — skipping prefix pre-registration")
+        return 0
+
+    pad_token_id_str = os.environ.get("VLLM_CENTROID_PAD_TOKEN_ID")
+    if pad_token_id_str is None:
+        logger.info(
+            "[CENTROID] VLLM_CENTROID_PAD_TOKEN_ID not set — "
+            "skipping APC pre-registration (first request uses gap path)"
+        )
+        return 0
+
+    pad_token_id = int(pad_token_id_str)
+    num_prefix_blocks = (total_len + block_size - 1) // block_size
+
+    if block_pool.get_num_free_blocks() < num_prefix_blocks:
+        logger.warning(
+            "[CENTROID] Not enough free blocks (%d needed, %d available) "
+            "for APC pre-registration — skipping",
+            num_prefix_blocks,
+            block_pool.get_num_free_blocks(),
+        )
+        return 0
+
+    try:
+        from vllm.v1.core.kv_cache_utils import hash_block_tokens
+        from vllm.v1.core.block_pool import make_block_hash_with_group_id
+        from vllm.utils.hashing import get_hash_fn_by_name
+    except ImportError:
+        logger.warning("[CENTROID] Could not import hashing utilities — skipping APC pre-registration")
+        return 0
+
+    hash_algo = os.environ.get("VLLM_PREFIX_CACHING_HASH_ALGO", "sha256")
+    try:
+        caching_hash_fn = get_hash_fn_by_name(hash_algo)
+    except Exception:
+        logger.warning(
+            "[CENTROID] Could not get hash function '%s' — skipping APC pre-registration",
+            hash_algo,
+        )
+        return 0
+
+    parent_hash = None
+    registered = 0
+
+    for blk_idx in range(num_prefix_blocks):
+        # Pad the last partial block to block_size with the same pad token so
+        # the hash matches what the request block hasher will compute.
+        token_ids = tuple([pad_token_id] * block_size)
+        block_hash = hash_block_tokens(caching_hash_fn, parent_hash, token_ids)
+        parent_hash = block_hash
+
+        for group_id in kv_cache_group_ids:
+            hash_with_gid = make_block_hash_with_group_id(block_hash, group_id)
+
+            # Idempotent: skip if already registered
+            if block_pool.cached_block_hash_to_block.get_one_block(hash_with_gid) is not None:
+                continue
+
+            blk_list = block_pool.get_new_blocks(1)
+            if not blk_list:
+                logger.warning(
+                    "[CENTROID] get_new_blocks returned empty — "
+                    "stopping pre-registration at block %d",
+                    blk_idx,
+                )
+                return registered
+
+            blk = blk_list[0]
+            blk.block_hash = hash_with_gid
+            block_pool.cached_block_hash_to_block.insert(hash_with_gid, blk)
+
+            # Decrement ref so the block sits in the evictable pool — the
+            # standard state for a cached-but-unreferenced APC block.
+            blk.ref_cnt -= 1
+            block_pool.free_block_queue.append(blk)
+            registered += 1
+
+    logger.info(
+        "[CENTROID] Pre-registered %d APC block(s) for pad_token_id=%d "
+        "prefix_len=%d block_size=%d groups=%s",
+        registered,
+        pad_token_id,
+        total_len,
+        block_size,
+        kv_cache_group_ids,
+    )
+    return registered

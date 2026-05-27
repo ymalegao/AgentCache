@@ -213,6 +213,7 @@ VLLM_CENTROID_K_PATH=centroids/N128_2000_K.npy    # centroid keys
 VLLM_CENTROID_V_PATH=centroids/N128_2000_V.npy    # centroid values
 VLLM_CENTROID_SYS_TOKENS=0                         # compression mode: no system prompt
 VLLM_CENTROID_LAYOUT=compression                   # layout mode
+VLLM_CENTROID_PAD_TOKEN_ID=128001                  # (optional) pad token ID for APC pre-registration
 
 vllm serve /path/to/Llama-3.2-1B-Instruct \
     --port 8000 \
@@ -278,10 +279,13 @@ Current behavior:
 
 With APC enabled and the pad prefix constant across all requests:
 
-- **Turn 1**: Centroid injector seeds slots 0..N-1 manually. User tokens M are prefilled.
-- **Turn 2+**: The pad prefix `[pad]*N` is identical to turn 1 → APC serves it from cache. The injector skips re-seeding. Only the new user tokens need prefill.
+- **Turn 1, first-ever request**: Centroid injector seeds slots 0..N-1 manually. vLLM's `cache_blocks` then registers those physical blocks in the APC hash table (keyed on `[pad_id]*N` token hashes). This happens inside `allocate_slots`, before the GPU forward pass, so the blocks are registered even though KV data arrives slightly later.
+- **Turn 1, second+ conversation**: APC finds the pre-cached centroid blocks → `num_local_cached_tokens = N`. `centroid_sched_gap` returns 0 (already covered). The GPU injector still runs and re-writes the same centroid KV (idempotent; the blocks are shared so no correctness issue).
+- **Turn 2+**: APC hit rate grows further as the growing conversation history is also cached.
 
-This makes multi-turn conversations progressively faster: each turn's APC hit rate grows as more history is cached.
+**Startup-time pre-registration** (`centroid_preregister_prefix_blocks`): optionally, the scheduler pre-allocates the centroid prefix blocks in the APC hash table at server startup — before any request arrives. This makes even the very first request see local APC hits (Prometheus `prefix_cache_hits` increments on turn 1) rather than going through the external-computed-token gap path. Enabled by setting `VLLM_CENTROID_PAD_TOKEN_ID`; the benchmark auto-detects this from the tokenizer.
+
+**Metric note**: `apc_cached_tokens` in the API response (from `prompt_tokens_details.cached_tokens`) counts both local APC hits and centroid gap tokens as "cached." It shows N for turn 1 of every conversation. The Prometheus `prefix_cache_hits` metric is stricter — it only counts APC hash-table hits, not the gap path. With pre-registration, both metrics align on turn 1.
 
 ---
 
@@ -432,9 +436,10 @@ Slight degradation in synthetic mode is within noise at 25 samples. The adapter 
 **What it measures:** Fraction of prompt tokens served by APC on a given turn.  
 **How measured:** `kv_cache_hits / kv_cache_queries` scraped from vLLM's `/metrics` Prometheus endpoint before and after each turn.  
 **Expected pattern:**
-- Turn 1: 0% hit rate (cold, nothing cached).
+- Turn 1, without pre-registration: 0% Prometheus hit rate (gap path used; `apc_cached_tokens` in API still shows N).
+- Turn 1, with pre-registration (`VLLM_CENTROID_PAD_TOKEN_ID` set): N/total_tokens Prometheus hit rate — local APC hit.
 - Turn 2+: high hit rate in `warm_apc` and `synthetic` modes as the prefix accumulates in APC.
-- `synthetic` mode: the constant `[pad]*N` prefix always hits APC from turn 2 onward, giving a baseline cache advantage on top of the centroid speedup.
+- `synthetic` mode: the constant `[pad]*N` prefix always hits APC from turn 2 onward; from turn 1 onward when pre-registration is active.
 
 ---
 
@@ -488,7 +493,7 @@ python run_multi_turn_pipeline.py \
 | `run_multi_turn_pipeline.py` | Orchestrates all modes in sequence |
 | `agentcache_compression/analyze_multi_turn.py` | Parse results JSONL, compute per-turn statistics |
 | `vllm/centroid_injector.py` | Injects centroid K/V into physical KV cache blocks |
-| `vllm/centroid_integration.py` | Scheduler hooks: gap mechanism, layout control |
+| `vllm/centroid_integration.py` | Scheduler hooks: gap mechanism, layout control, APC pre-registration |
 | `agentcache_compression/prompts/2000_python_agent_system.txt` | 2000-token system prompt used for training and benchmarks |
 | `agentcache_compression/data/python_agent_train.jsonl` | 118 training examples |
 | `agentcache_compression/data/python_agent_eval.jsonl` | 25 eval examples with keyword checks |
