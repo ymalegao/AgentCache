@@ -296,9 +296,12 @@ def try_load_centroid_injector(
         if log_missing_file:
             logger.warning("CentroidInjector not loaded, file not found: %s", k)
         return None
+    k2 = os.environ.get("VLLM_CENTROID_K_PATH_2")
+    v2 = os.environ.get("VLLM_CENTROID_V_PATH_2")
     try:
-        inj = CentroidInjector(k, v, device=device)
-        logger.info("CentroidInjector loaded: %s", k)
+        inj = CentroidInjector(k, v, device=device, centroid_K_path_2=k2, centroid_V_path_2=v2)
+        logger.info("CentroidInjector loaded: %s%s", k,
+                    f" + secondary: {k2}" if k2 else "")
         return inj
     except Exception:
         logger.exception("CentroidInjector failed to load from %s", k)
