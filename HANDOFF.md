@@ -1,7 +1,7 @@
 # AgentCache — System Design & Handoff
 
-**Date:** 2026-05-25  
-**Status:** Multi-turn benchmark pipeline complete. Llama compression path validated. GPT-OSS synthetic compression now works after runtime KV-layout / cache-group / RoPE fixes. 2.8× TTFT speedup confirmed at 1000-token contexts on Llama.
+**Date:** 2026-05-27  
+**Status:** Multi-turn benchmark pipeline complete. Llama compression path validated. GPT-OSS synthetic compression now works after runtime KV-layout / cache-group / RoPE fixes. 2.8× TTFT speedup confirmed at 1000-token contexts on Llama. APC pre-registration now working: turn-1 Prometheus hit rate confirmed at 42.1% (64/152 tokens) for N=64.
 
 ---
 
@@ -129,7 +129,9 @@ labels = [-100] * prompt_len + input_ids[prompt_len:]
 
 This forces the virtual tokens to encode behavioral priors — the adapter must make the model produce correct agent outputs even without seeing the system prompt.
 
-**`system_retain_ratio=0.0`**: During training, the system prompt is entirely absent from the input. The model must rely solely on the virtual tokens to understand the agent's persona.
+**`system_retain_ratio`**: A continuous 0.0–1.0 parameter. At `0.0` (our default), the system prompt is entirely absent — the model must rely solely on virtual tokens. At `1.0`, the full system prompt is kept (equivalent to standard fine-tuning, not compression). Intermediate values (e.g., `0.5`) retain the first half of system prompt tokens, allowing hybrid training. The `truncate_system()` function tokenizes the system prompt and keeps only the first `ratio * len` tokens before decoding back to text.
+
+**Batch collation**: `dynamic_collator` pads each batch to its longest sequence rather than a fixed global max. Input IDs pad with `pad_token_id`; labels pad with `-100` so padding positions are never included in the loss.
 
 **Training hyperparameters:**
 
@@ -142,42 +144,63 @@ This forces the virtual tokens to encode behavioral priors — the adapter must 
 | Precision | BF16 |
 | Final loss (N=64) | ~0.64 |
 
-**Output:** `agentcache_compression/adapters/N{N}_sys0/adapter_model.safetensors`
+**Full train command:**
+
+```bash
+python agentcache_compression/train_prefix_compression.py \
+    --model /mnt/g/agentcache/models/Llama-3.2-1B-Instruct \
+    --data agentcache_compression/data/python_agent_train.jsonl \
+    --system-prompt agentcache_compression/prompts/2000_python_agent_system.txt \
+    --output agentcache_compression/adapters/N64_sys0 \
+    --num-virtual-tokens 64 \
+    --system-retain-ratio 0.0 \
+    --epochs 8 \
+    --lr 2e-3
+```
+
+**Output:** `agentcache_compression/adapters/N{N}_sys0/` — contains `adapter_model.safetensors` and `adapter_config.json` (written by PEFT; stores `num_virtual_tokens`, `num_layers`, `token_dim`, `prefix_projection` — read by `transpose_tensors.py`).
 
 ---
 
 ## 4. Phase B — Transposition (`transpose_tensors.py`)
 
-After training, the adapter weights exist as flat embeddings inside `adapter_model.safetensors`. vLLM cannot use these directly — it needs layer-wise KV tensors in a specific shape. This phase materializes the learned representations.
+After training, the adapter weights exist inside `adapter_model.safetensors`. vLLM cannot use PEFT adapter format directly — it needs layer-wise KV tensors in a specific shape. This phase materializes the learned representations.
+
+`transpose_tensors.py` first reads `adapter_config.json` (written by PEFT) to get `num_virtual_tokens`, `num_layers`, `token_dim`, and `prefix_projection`. It then takes one of two paths depending on `prefix_projection`.
 
 ### 4.1 Two Export Paths
 
 **Non-projected** (`prefix_projection=False`):
 
-The weights are stored as a flat matrix `[N, L × 2 × d]`. Reshaping is straightforward:
+Weights stored as a flat matrix. Pure tensor reshaping, no model load required:
 
 ```
-[N, L × 2 × d]  →  reshape [N, L, 2, d]  →  permute [2, L, N, d]  →  split K (index 0), V (index 1)
+raw_prefix shape: [N, L × 2 × d]
+  → view [N, L, 2, d]
+  → permute [2, L, N, d]          # axis 0: K/V split
+  → K = result[0]  shape [L, N, d]  # transposed to [num_layers, N, token_dim]
+    V = result[1]  shape [L, N, d]
 ```
 
 **Projected** (`prefix_projection=True`) — what we use:
 
-The MLP transform must be applied to produce the correct KV pairs. Manual reconstruction of the MLP from saved weights had subtle alignment bugs that caused garbled injection output. The correct approach is to use PEFT's own runtime:
+Manual MLP reconstruction from saved weights has alignment bugs that produce garbled output. The only safe approach is to run PEFT's own forward pass:
 
 ```python
+base_model = AutoModelForCausalLM.from_pretrained(base_model_path, torch_dtype=torch.float16, device_map="cpu")
 peft_model = PeftModel.from_pretrained(base_model, adapter_dir)
 prompt_cache = peft_model.get_prompt(batch_size=1)
-# prompt_cache[layer] = (K, V) each shaped [1, num_kv_heads, N, head_dim]
+# prompt_cache is a list of (K_tensor, V_tensor) per layer
+# Each tensor shape: [1, num_kv_heads, N, head_dim]  (batch dim = 1)
 
-# Per layer: K[0] → permute [N, kv_heads, head_dim] → flatten → [N, token_dim]
-k_flat = k.permute(1, 0, 2).contiguous().view(num_virtual_tokens, -1)
+for layer_idx, (k_batch, v_batch) in enumerate(prompt_cache):
+    k = k_batch[0]   # drop batch dim → [num_kv_heads, N, head_dim]
+    k_flat = k.permute(1, 0, 2).contiguous().view(N, -1)
+    #   permute → [N, num_kv_heads, head_dim]
+    #   view   → [N, token_dim]  where token_dim = num_kv_heads × head_dim
 ```
 
-This guarantees the exported tensors are cache-aligned with PEFT's runtime format.
-
-### 4.3 GPT-OSS Export Note
-
-For GPT-OSS, the exported `.npy` tensors from `PeftModel.get_prompt()` should be treated as the learned prefix KV representation directly. In the runtime path that proved correct for GPT-OSS, those exported K tensors are injected without applying an extra centroid-side RoPE transform.
+Stacking across layers gives `[num_layers, N, token_dim]`. Running on CPU keeps the base model off the GPU — the projected export is memory-heavy (~8 GB for 1B model in fp16) but only runs once.
 
 ### 4.2 Output Format
 
@@ -187,17 +210,21 @@ For GPT-OSS, the exported `.npy` tensors from `PeftModel.get_prompt()` should be
 | `centroid_V.npy` | `[num_layers, N, token_dim]` | Value tensors for all layers |
 | `sys_prefix_num_tokens.txt` | scalar | System token count (0 = pure compression mode) |
 
-Example for N=64, Llama-3.2-1B: shape `[16, 64, 512]`.
+Example for N=64, Llama-3.2-1B: shape `[16, 64, 512]` (16 layers, 64 virtual tokens, 512 = 8 heads × 64 head_dim).
 
 **Command:**
 
 ```bash
 python agentcache_compression/transpose_tensors.py \
     --adapter agentcache_compression/adapters/N64_sys0 \
-    --out-k agentcache_compression/centroids/N64_K.npy \
-    --out-v agentcache_compression/centroids/N64_V.npy \
+    --out-k agentcache_compression/centroids/N64_2000_K.npy \
+    --out-v agentcache_compression/centroids/N64_2000_V.npy \
     --sys-tokens 0
 ```
+
+### 4.3 GPT-OSS Export Note
+
+For GPT-OSS, the exported `.npy` tensors from `PeftModel.get_prompt()` are injected directly without applying an extra centroid-side RoPE transform at runtime. The export step itself is identical; only the injection path differs (see section 5.4.2).
 
 ---
 
@@ -213,7 +240,9 @@ VLLM_CENTROID_K_PATH=centroids/N128_2000_K.npy    # centroid keys
 VLLM_CENTROID_V_PATH=centroids/N128_2000_V.npy    # centroid values
 VLLM_CENTROID_SYS_TOKENS=0                         # compression mode: no system prompt
 VLLM_CENTROID_LAYOUT=compression                   # layout mode
-VLLM_CENTROID_PAD_TOKEN_ID=128001                  # (optional) pad token ID for APC pre-registration
+VLLM_CENTROID_PAD_TOKEN_ID=128009                  # (optional) pad token ID for APC pre-registration
+                                                    # Llama-3.2-1B-Instruct pad token = 128009 (<|eot_id|>)
+                                                    # (not 128001 — auto-detected by benchmark from tokenizer)
 
 vllm serve /path/to/Llama-3.2-1B-Instruct \
     --port 8000 \
@@ -251,17 +280,42 @@ prompt_token_ids = [pad_id] * N + user_chat_token_ids
 
 **Why no system prompt in the text?** In compression mode, the system prompt is removed from the physical prompt entirely. The centroid stands in for it. Sending the system prompt text would double-count it (once as text and once via the injected KV).
 
-### 5.4 CentroidInjector (`centroid_injector.py`)
+### 5.4 `gpu_model_runner.py` — Where the Hooks Live
 
-The injector runs before each forward pass on prefill:
+All centroid hooks attach to vLLM's V1 GPU model runner. Two hook points:
 
-1. **Load**: `.npy` files are loaded once at server startup.
+**Hook 1 — New-request admission** (runs when a request is first seen by the runner):
+
+```python
+# gpu_model_runner.py ~line 1168
+eff_num_computed = new_req_data.num_computed_tokens
+if not self.is_pooling_model and centroid_scheduler_mode() and eff_num_computed == 0:
+    ensure_centroid_injector_lazy(self)
+    eff_num_computed = centroid_override_num_computed(eff_num_computed, self._centroid_injector)
+```
+
+`centroid_override_num_computed` sets `eff_num_computed = N` (centroid + sys token count) when the runner would otherwise see 0. This tells the runner that positions 0..N-1 are already filled, so it only schedules user tokens for GPU computation. This is the worker-side counterpart to the scheduler's gap mechanism.
+
+**Hook 2 — Block table build** (runs every forward pass, skipped during CUDA graph capture):
+
+```python
+# gpu_model_runner.py ~line 2171
+block_table_gid_0 = apply_centroid_block_table(self, block_table_gid_0, num_reqs, self.input_batch)
+```
+
+`apply_centroid_block_table` (in `centroid_integration.py`) calls `CentroidInjector.seed_prefix_into_kv_cache`, which writes the centroid K/V tensors directly into the physical KV cache blocks at positions 0..N-1. This is skipped during CUDA graph capture (`for_cudagraph_capture=True`) so the synthetic injection doesn't corrupt warmup prefills.
+
+### 5.4.1 CentroidInjector (`centroid_injector.py`)
+
+The injector is called by hook 2 above. Per-request steps:
+
+1. **Load**: `.npy` files are loaded once at server startup (`try_load_centroid_injector`).
 2. **Seed**: For positions 0..N-1, write centroid K/V tensors into the physical KV cache block table slots.
-3. **RoPE rotation**: For the original Llama/Qwen-style path, stored centroid K tensors are rotated with position offsets 0..N-1 at injection time. GPT-OSS is a model-specific exception: the exported PEFT prefix K must be injected unrotated.
-4. **Caching**: After seeding a request, the request ID is recorded. On subsequent turns in the same session, re-seeding is skipped (APC has already cached the prefix).
+3. **RoPE rotation**: For Llama/Qwen, stored centroid K tensors are rotated with position offsets 0..N-1 at injection time. GPT-OSS is a model-specific exception: the exported PEFT prefix K must be injected unrotated.
+4. **Skip on repeat**: After seeding a request, the request ID is recorded. On subsequent turns in the same session, re-seeding is skipped (APC has already cached the prefix).
 5. **Block table mapping**: The injector computes `block_col = position // block_size` and `intra_block_idx = position % block_size` to write to the correct physical memory location.
 
-### 5.4.1 GPT-OSS Runtime Fixes
+### 5.4.2 GPT-OSS Runtime Fixes
 
 GPT-OSS did not work with the initial centroid path even after centroid files exported successfully. Four runtime issues had to be fixed:
 
@@ -283,7 +337,13 @@ With APC enabled and the pad prefix constant across all requests:
 - **Turn 1, second+ conversation**: APC finds the pre-cached centroid blocks → `num_local_cached_tokens = N`. `centroid_sched_gap` returns 0 (already covered). The GPU injector still runs and re-writes the same centroid KV (idempotent; the blocks are shared so no correctness issue).
 - **Turn 2+**: APC hit rate grows further as the growing conversation history is also cached.
 
-**Startup-time pre-registration** (`centroid_preregister_prefix_blocks`): optionally, the scheduler pre-allocates the centroid prefix blocks in the APC hash table at server startup — before any request arrives. This makes even the very first request see local APC hits (Prometheus `prefix_cache_hits` increments on turn 1) rather than going through the external-computed-token gap path. Enabled by setting `VLLM_CENTROID_PAD_TOKEN_ID`; the benchmark auto-detects this from the tokenizer.
+**Startup-time pre-registration** (`centroid_preregister_prefix_blocks`): pre-allocates the centroid prefix blocks in the APC hash table at server startup — before any request arrives. This makes even the very first request see local APC hits (Prometheus `prefix_cache_hits` increments on turn 1) rather than relying solely on the external-computed-token gap path. Enabled by setting `VLLM_CENTROID_PAD_TOKEN_ID`; the benchmark auto-detects this from the tokenizer.
+
+**Implementation note**: `centroid_preregister_prefix_blocks` must be called from `EngineCore.__init__` in `core.py`, AFTER `init_none_hash()` is called (line ~207). Calling it from `Scheduler.__init__` (which runs earlier) fails with `NameError: name 'NONE_HASH' is not defined` because vLLM's block-hash global has not been initialized yet. The patched `core.py` calls `centroid_preregister_prefix_blocks` inside the `enable_prefix_caching` block, right after `init_none_hash`.
+
+**Confirmed result (Llama-3.2-1B, N=64, 152-token prompt):**
+- Turn 1 Prometheus hit rate: **42.1%** (64/152 tokens — exactly the 4 centroid blocks)
+- Turn 2+: grows as conversation history accumulates in APC
 
 **Metric note**: `apc_cached_tokens` in the API response (from `prompt_tokens_details.cached_tokens`) counts both local APC hits and centroid gap tokens as "cached." It shows N for turn 1 of every conversation. The Prometheus `prefix_cache_hits` metric is stricter — it only counts APC hash-table hits, not the gap path. With pre-registration, both metrics align on turn 1.
 
@@ -499,12 +559,22 @@ python run_multi_turn_pipeline.py \
 | `agentcache_compression/data/python_agent_eval.jsonl` | 25 eval examples with keyword checks |
 | `agentcache_compression/centroids/` | Exported `.npy` files for N=64/128/256 |
 
-**vLLM integration installed at runtime:**
+**vLLM files patched (5 files total):**
 
-```
-vllm-env/lib/python3.10/site-packages/vllm/centroid_injector.py
-vllm-env/lib/python3.10/site-packages/vllm/centroid_integration.py
-vllm-env/lib/python3.10/site-packages/vllm/v1/worker/gpu_model_runner.py
+| File | What changed |
+|------|-------------|
+| `vllm/centroid_injector.py` | New file. `CentroidInjector` class: loads `.npy` centroid K/V, writes them into physical KV cache blocks, handles RoPE rotation, multi-group layout, per-request skip-on-repeat. |
+| `vllm/centroid_integration.py` | New file. Bridge functions: `centroid_sched_gap`, `apply_centroid_block_table`, `centroid_preregister_prefix_blocks`, rotary-emb lookup, layout control. |
+| `vllm/v1/worker/gpu_model_runner.py` | Two hook points added: (1) `centroid_override_num_computed` at new-request admission to set `eff_num_computed=N`; (2) `apply_centroid_block_table` call before every forward pass (skipped during CUDA graph capture). |
+| `vllm/v1/core/sched/scheduler.py` | `centroid_sched_gap()` call added to the scheduling loop to inflate `num_external_computed_tokens` by N for centroid requests. |
+| `vllm-env/.../vllm/v1/engine/core.py` | `centroid_preregister_prefix_blocks` called after `init_none_hash` in `EngineCore.__init__`. Must be here — calling it earlier (e.g., in Scheduler.__init__) fails because `NONE_HASH` is not yet defined. **No repo copy — edit in-place in vllm-env.** |
+
+**Sync command** (run after any edit to repo `vllm/` files):
+```bash
+for f in centroid_injector.py centroid_integration.py v1/core/sched/scheduler.py; do
+    cp vllm/$f vllm-env/lib/python3.10/site-packages/vllm/$f
+done
+# core.py: edit vllm-env/lib/python3.10/site-packages/vllm/v1/engine/core.py directly
 ```
 
 ---
