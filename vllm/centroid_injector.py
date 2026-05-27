@@ -53,7 +53,7 @@ def load_sys_prefix_token_count(centroid_k_path: str) -> int:
     if sidecar.is_file():
         return int(sidecar.read_text().strip())
     logger.warning(
-        "No VLLM_CENTROID_SYS_TOKENS and no %s — using 128 (likely wrong; set env "
+        "No VLLM_CENTROID_SYS_TOKENS and no %s, using 128 (likely wrong, set env "
         "or add sys_prefix_num_tokens.txt next to centroids)",
         sidecar,
     )
@@ -209,9 +209,9 @@ class CentroidInjector:
 
         if rotary_emb is None and not getattr(self, "_warned_unrotated_k", False):
             self._warned_unrotated_k = True
-            logger.warning("CentroidInjector: rotary_emb is None — injecting unrotated K")
+            logger.warning("CentroidInjector: rotary_emb is None, injecting unrotated K")
 
-        # After the first successful seed per request_id, KV slots are stable; skip
+        # After the first successful seed per request_id, KV slots are stable. Skip
         # RoPE + writes on every chunked-prefill / decode step (major host+GPU win).
         if req_ids is not None and num_reqs > 0:
             seeded = self._centroid_seeded_req_ids
@@ -433,7 +433,7 @@ class CentroidInjector:
                     p1 = self.sys_token_count + max_centroid_fill - 1
                     logger.info(
                         "[CENTROID ROPE] inject#%s centroid RoPE positions used: %s..%s "
-                        "(inclusive; must match forward `positions` for those logical slots)",
+                        "(inclusive, must match forward `positions` for those logical slots)",
                         inv,
                         p0,
                         p1,
@@ -498,9 +498,9 @@ class CentroidInjector:
             if rope_dbg and inv < 24 and seq == 0:
                 cap = self.sys_token_count + self.centroid_len
                 logger.info(
-                    "[CENTROID ROPE] inject#%s seq0 prompt_len=%s req_id=%r — "
+                    "[CENTROID ROPE] inject#%s seq0 prompt_len=%s req_id=%r, "
                     "logical slots this run: sys[0..min(sys_stored,prompt)-1], "
-                    "centroid[sys_token_count .. min(sys+cntr,prompt)-1]; "
+                    "centroid[sys_token_count .. min(sys+cntr,prompt)-1], "
                     "full synthetic cap sys+centroid_len=%s (diff vs prompt=%s)",
                     inv,
                     prompt_len,

@@ -255,7 +255,7 @@ class Scheduler(SchedulerInterface):
                 centroid_preregister_prefix_blocks(_bp, block_size, _group_ids)
             except Exception:
                 logger.exception(
-                    "[CENTROID] centroid_preregister_prefix_blocks failed; continuing without pre-registration"
+                    "[CENTROID] centroid_preregister_prefix_blocks failed. Continuing without pre-registration"
                 )
 
         self.use_pp = self.parallel_config.pipeline_parallel_size > 1
@@ -815,7 +815,7 @@ class Scheduler(SchedulerInterface):
                     self.connector.update_state_after_alloc(
                         request,
                         self.kv_cache_manager.get_blocks(request_id),
-                        _lmcache_ext,  # centroid gap excluded; connector owns only true LMCache hits
+                        _lmcache_ext,  # centroid gap excluded, connector owns only true LMCache hits
                     )
                     if (
                         self.connector_prefix_cache_stats is not None

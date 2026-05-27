@@ -663,7 +663,7 @@ class GPUModelRunner(LoRAModelRunnerMixin):
             prompt_len = len(new_req_data.prompt_token_ids)
             num_computed = new_req_data.num_computed_tokens
             # centroid Path B (scheduler mode): scheduler already set
-            # num_computed_tokens = sys_token_count; suppress legacy override.
+            # num_computed_tokens = sys_token_count. Suppress legacy override.
             if not self.is_pooling_model and not (
                 centroid_scheduler_mode() and num_computed > 0
             ):
