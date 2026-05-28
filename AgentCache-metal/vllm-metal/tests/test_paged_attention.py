@@ -1,0 +1,283 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Tests for paged attention shared utilities — OffsetCache, prepare functions.
+
+Run with:
+    python -m pytest tests/test_paged_attention.py -v -s
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from vllm_metal.paged_attention_common import (
+    OffsetCache,
+    clear_context,
+    get_context,
+    prepare_unified,
+)
+
+
+class TestOffsetCache:
+    def test_offset_property(self):
+        c = OffsetCache(42)
+        assert c.offset == 42
+
+    def test_make_mask_single_token(self):
+        c = OffsetCache(10)
+        assert c.make_mask(1) is None
+
+    def test_make_mask_multi_token(self):
+        c = OffsetCache(0)
+        assert c.make_mask(5) == "causal"
+
+
+class TestPrepare:
+    def teardown_method(self):
+        clear_context()
+
+    def test_prepare_unified_prefill_single(self):
+        # Single prefill request via prepare_unified (start_pos=0)
+        prepare_unified([], [([10, 11], 5, 0)], block_size=4)
+        ctx = get_context()
+
+        # block 10: slots 40,41,42,43; block 11: slot 44
+        assert ctx is not None
+        assert ctx.slot_mapping == [40, 41, 42, 43, 44]
+        assert ctx.block_tables == [[10, 11]]
+        assert ctx.context_lens == [5]
+        assert ctx.cu_seqlens == [0, 5]
+        assert ctx.offsets == [0]
+
+    def test_prepare_unified_prefill_packed(self):
+        # Two prefill requests packed together
+        prepare_unified([], [([10], 3, 0), ([20], 2, 0)], block_size=4)
+        ctx = get_context()
+
+        assert ctx is not None
+        # Request 0: block 10, slots 40,41,42
+        # Request 1: block 20, slots 80,81
+        assert ctx.slot_mapping == [40, 41, 42, 80, 81]
+        assert ctx.cu_seqlens == [0, 3, 5]
+        assert ctx.block_tables == [[10], [20]]
+        assert ctx.context_lens == [3, 2]
+        assert ctx.offsets == [0, 0]
+
+    def test_prepare_unified_prefill_multiblock(self):
+        # Single prefill spanning two blocks
+        prepare_unified([], [([5, 6], 5, 0)], block_size=4)
+        ctx = get_context()
+
+        assert ctx is not None
+        assert ctx.cu_seqlens == [0, 5]
+        # block 5: slots 20,21,22,23; block 6: slot 24
+        assert ctx.slot_mapping == [20, 21, 22, 23, 24]
+        assert ctx.block_tables == [[5, 6]]
+        assert ctx.context_lens == [5]
+
+    def test_prepare_unified_continuation_chunk(self):
+        # Continuation chunk: 3 new tokens starting at position 4
+        # block 10 has slots 40-43 (positions 0-3, already cached),
+        # block 11 has slots 44-47 (positions 4-6 are the new tokens)
+        prepare_unified([], [([10, 11], 3, 4)], block_size=4)
+        ctx = get_context()
+
+        assert ctx is not None
+        # Only 3 tokens in the query (positions 4, 5, 6)
+        assert ctx.cu_seqlens == [0, 3]
+        # Slots for positions 4, 5, 6: block 11 slots 44, 45, 46
+        assert ctx.slot_mapping == [44, 45, 46]
+        assert ctx.block_tables == [[10, 11]]
+        # Total context = start_pos + num_tokens = 4 + 3 = 7
+        assert ctx.context_lens == [7]
+        # RoPE offset = start_pos
+        assert ctx.offsets == [4]
+
+    def test_prepare_unified_decode_only(self):
+        # Single decode request via prepare_unified
+        decode_requests = [([5, 6], 7)]
+        prepare_unified(decode_requests, [], block_size=4)
+        ctx = get_context()
+
+        # new_pos=7, block_ids[7//4]=block_ids[1]=6, slot=6*4+(7%4)=27
+        assert ctx is not None
+        assert ctx.slot_mapping == [27]
+        assert ctx.context_lens == [8]
+        assert ctx.offsets == [7]
+        assert ctx.cu_seqlens == [0, 1]
+
+    def test_prepare_unified_spec_decode_splits_query_tokens(self):
+        # Speculative verification appends draft rows after the last token.
+        # Each row is a separate attention segment with its own position.
+        prepare_unified([([5, 6, 7], 7, 3)], [], block_size=4)
+        ctx = get_context()
+
+        assert ctx is not None
+        assert ctx.slot_mapping == [27, 28, 29]
+        assert ctx.block_tables == [[5, 6, 7], [5, 6, 7], [5, 6, 7]]
+        assert ctx.context_lens == [8, 9, 10]
+        assert ctx.offsets == [7, 8, 9]
+        assert ctx.cu_seqlens == [0, 1, 2, 3]
+
+    def test_prepare_unified_mixed(self):
+        # 1 decode + 1 prefill
+        decode_requests = [([5, 6], 7)]  # seq_len=7
+        prefill_requests = [([10, 11], 5, 0)]  # 5 tokens from position 0
+
+        prepare_unified(decode_requests, prefill_requests, block_size=4)
+        ctx = get_context()
+
+        assert ctx is not None
+        # Decode slot: pos=7, block 6, slot=6*4+3=27
+        # Prefill slots: block 10 slots 40,41,42,43; block 11 slot 44
+        assert ctx.slot_mapping == [27, 40, 41, 42, 43, 44]
+        assert ctx.cu_seqlens == [0, 1, 6]
+        assert ctx.offsets == [7, 0]
+        assert ctx.context_lens == [8, 5]
+        assert ctx.block_tables == [[5, 6], [10, 11]]
+
+
+class TestPackedRoPE:
+    """Tests for per-request RoPE position reset in packed prefill."""
+
+    def test_positions_reset_per_request(self):
+        """Each packed request's RoPE should start from position 0."""
+        import mlx.core as mx
+
+        from vllm_metal.metal_kernel_backend.packed_prefill_compat import (
+            apply_packed_rope,
+        )
+
+        # Minimal RoPE stub: returns input + offset so we can verify offsets
+        class FakeRoPE:
+            def rope(self, x, offset=0):
+                return x + offset
+
+        module = FakeRoPE()
+        # Two requests packed: 3 tokens + 2 tokens
+        # Shape: (1, heads=1, total_len=5, head_dim=2)
+        q = mx.zeros((1, 1, 5, 2))
+        k = mx.zeros((1, 1, 5, 2))
+        cu_seqlens = [0, 3, 5]
+
+        q_out, k_out = apply_packed_rope(module, q, k, cu_seqlens)
+
+        # All values should be 0 (offset=0 for every request)
+        assert q_out.shape == (1, 1, 5, 2)
+        assert mx.allclose(q_out, mx.zeros_like(q_out)).item()
+        assert mx.allclose(k_out, mx.zeros_like(k_out)).item()
+
+    def test_rejects_positions_on_mlx_lm_rope_path(self):
+        """Caller-provided positions are only valid on the M-RoPE path."""
+        import mlx.core as mx
+
+        from vllm_metal.metal_kernel_backend.packed_prefill_compat import (
+            apply_packed_rope,
+        )
+
+        class FakeRoPE:
+            def rope(self, x, offset=0):
+                return x
+
+        q = mx.zeros((1, 1, 3, 2))
+        k = mx.zeros((1, 1, 3, 2))
+        with pytest.raises(NotImplementedError, match="position-array slot"):
+            apply_packed_rope(
+                FakeRoPE(),
+                q,
+                k,
+                [0, 3],
+                positions=[mx.zeros((3, 1, 3), dtype=mx.int32)],
+            )
+
+    def test_mrope_uses_caller_positions_when_provided(self, monkeypatch):
+        """When ``positions[i]`` is an array, M-RoPE consumes it directly."""
+        import sys
+        import types
+
+        import mlx.core as mx
+
+        from vllm_metal.metal_kernel_backend.packed_prefill_compat import (
+            apply_packed_rope,
+        )
+
+        captured: list[mx.array] = []
+
+        class FakeMRoPE:
+            def rotary_emb(self, x, position_ids):
+                captured.append(position_ids)
+                # Return cos/sin shaped to match rotary_emb's contract; we
+                # do not care about correctness here, only routing.
+                seg_len = x.shape[2]
+                head_dim = x.shape[3]
+                cos = mx.zeros((1, 1, seg_len, head_dim))
+                sin = mx.zeros((1, 1, seg_len, head_dim))
+                return cos, sin
+
+        # Patch apply_multimodal_rotary_pos_emb so we do not need real mlx_vlm
+        # math; just route q,k through unchanged.  ``monkeypatch.setitem``
+        # restores the original sys.modules entry at teardown so this fake
+        # cannot leak into later tests in the same process.
+        fake_mod = types.ModuleType("mlx_vlm.models.qwen3_5.language")
+        fake_mod.apply_multimodal_rotary_pos_emb = lambda q, k, cos, sin: (q, k)
+        monkeypatch.setitem(sys.modules, "mlx_vlm.models.qwen3_5.language", fake_mod)
+
+        q = mx.zeros((1, 1, 3, 2))
+        k = mx.zeros((1, 1, 3, 2))
+        provided = mx.array([[[0, 1, 2]], [[0, 1, 2]], [[0, 1, 2]]], dtype=mx.int32)
+        apply_packed_rope(
+            FakeMRoPE(),
+            q,
+            k,
+            [0, 3],
+            positions=[provided],
+        )
+
+        assert len(captured) == 1
+        assert captured[0] is provided
+
+    def test_mrope_mixed_int_offset_and_array_positions(self, monkeypatch):
+        """Each segment independently picks int-offset or array-position."""
+        import sys
+        import types
+
+        import mlx.core as mx
+
+        from vllm_metal.metal_kernel_backend.packed_prefill_compat import (
+            apply_packed_rope,
+        )
+
+        recorded: list[mx.array] = []
+
+        class FakeMRoPE:
+            def rotary_emb(self, x, position_ids):
+                recorded.append(position_ids)
+                seg_len = x.shape[2]
+                head_dim = x.shape[3]
+                cos = mx.zeros((1, 1, seg_len, head_dim))
+                sin = mx.zeros((1, 1, seg_len, head_dim))
+                return cos, sin
+
+        fake_mod = types.ModuleType("mlx_vlm.models.qwen3_5.language")
+        fake_mod.apply_multimodal_rotary_pos_emb = lambda q, k, cos, sin: (q, k)
+        monkeypatch.setitem(sys.modules, "mlx_vlm.models.qwen3_5.language", fake_mod)
+
+        q = mx.zeros((1, 1, 5, 2))
+        k = mx.zeros((1, 1, 5, 2))
+        # Two segments: first uses int offset (no positions[0]),
+        # second uses array positions[1].
+        caller_pos = mx.array([[[10, 11]], [[10, 11]], [[10, 11]]], dtype=mx.int32)
+        apply_packed_rope(
+            FakeMRoPE(),
+            q,
+            k,
+            [0, 3, 5],
+            offsets=[7, 0],
+            positions=[None, caller_pos],
+        )
+
+        assert len(recorded) == 2
+        # First seg: arange(7, 10) broadcast over (3, 1, 3)
+        assert recorded[0].shape == (3, 1, 3)
+        assert recorded[0].tolist() == [[[7, 8, 9]]] * 3
+        # Second seg: caller-supplied positions used verbatim
+        assert recorded[1] is caller_pos

@@ -1,0 +1,738 @@
+# SPDX-License-Identifier: Apache-2.0
+from __future__ import annotations
+
+import math
+from collections.abc import Generator
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import mlx.core as mx
+import mlx.nn as nn
+import pytest
+from mlx_lm.models.base import scaled_dot_product_attention
+
+import vllm_metal.paged_attention_common as pac
+from vllm_metal.mlx_backend.mla_cache import MLAPagedLatentCache
+from vllm_metal.paged_attention_backend.mla import (
+    MLAPagedAttentionBackend,
+    MLAPagedAttentionWrapper,
+)
+from vllm_metal.paged_attention_backend.protocol import PagedAttentionBackend
+
+# Fixture dimensions matching GLM/DeepSeek-V2 defaults
+_KV_LORA_RANK = 512
+_QK_ROPE_HEAD_DIM = 64
+_LATENT_DIM = _KV_LORA_RANK + _QK_ROPE_HEAD_DIM
+
+
+class TestMLAPagedLatentCache:
+    def test_latent_dim_stored_correctly(self) -> None:
+        cache = MLAPagedLatentCache(
+            num_layers=4,
+            latent_dim=_LATENT_DIM,
+            num_blocks=10,
+            block_size=16,
+            dtype=mx.float16,
+        )
+
+        assert cache.latent_dim == _LATENT_DIM
+
+    def test_per_layer_array_shape(self) -> None:
+        cache = MLAPagedLatentCache(
+            num_layers=3,
+            latent_dim=288,
+            num_blocks=8,
+            block_size=16,
+            dtype=mx.float16,
+        )
+
+        assert len(cache.latent_caches) == 3
+        for arr in cache.latent_caches:
+            assert arr.shape == (8, 16, 288)  # (num_blocks, block_size, latent_dim)
+            assert arr.dtype == mx.float16
+
+    def test_bfloat16_dtype_accepted(self) -> None:
+        cache = MLAPagedLatentCache(
+            num_layers=2,
+            latent_dim=192,
+            num_blocks=4,
+            block_size=8,
+            dtype=mx.bfloat16,
+        )
+
+        assert cache.dtype == mx.bfloat16
+
+    def test_invalid_dtype_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unsupported dtype"):
+            MLAPagedLatentCache(
+                num_layers=2,
+                latent_dim=_LATENT_DIM,
+                num_blocks=5,
+                block_size=16,
+                dtype=mx.int32,
+            )
+
+
+class TestMLAPagedAttentionBackend:
+    def _make_backend(self) -> MLAPagedAttentionBackend:
+        return MLAPagedAttentionBackend(
+            num_layers=4,
+            latent_dim=_LATENT_DIM,
+            block_size=16,
+            dtype=mx.float16,
+        )
+
+    def test_implements_paged_attention_backend_protocol(self) -> None:
+        backend = self._make_backend()
+
+        assert isinstance(backend, PagedAttentionBackend)
+
+    def test_num_blocks_raises_before_initialize(self) -> None:
+        backend = self._make_backend()
+
+        with pytest.raises(RuntimeError, match="called before initialize"):
+            backend.num_blocks()
+
+    def test_warm_up_raises_before_initialize(self) -> None:
+        backend = self._make_backend()
+
+        with pytest.raises(RuntimeError, match="called before initialize"):
+            backend.warm_up()
+
+    def test_patch_model_raises_before_initialize(self) -> None:
+        backend = self._make_backend()
+
+        with pytest.raises(RuntimeError, match="called before initialize"):
+            backend.patch_model(object())
+
+    def test_num_blocks_after_initialize(self) -> None:
+        backend = self._make_backend()
+        backend.initialize(50)
+
+        assert backend.num_blocks() == 50
+
+    def test_warm_up_after_initialize_does_not_raise(self) -> None:
+        backend = self._make_backend()
+        backend.initialize(10)
+
+        backend.warm_up()
+
+    def test_initialize_allocates_cache_with_correct_shape(self) -> None:
+        backend = self._make_backend()
+
+        backend.initialize(20)
+
+        assert backend._cache is not None
+        assert backend._cache.num_blocks == 20
+        assert backend._cache.latent_dim == _LATENT_DIM
+        assert backend._cache.num_layers == 4
+
+
+class _FakeAttn(nn.Module):
+    pass
+
+
+class _FakeLayer:
+    def __init__(self) -> None:
+        self.self_attn = _FakeAttn()
+
+
+class _FakeModel:
+    """Minimal stand-in for a model with .model.layers."""
+
+    def __init__(self, num_layers: int) -> None:
+        self.model = SimpleNamespace(layers=[_FakeLayer() for _ in range(num_layers)])
+
+
+class TestPatchModelAttentionMla:
+    def _make_backend(self, num_layers: int) -> MLAPagedAttentionBackend:
+        backend = MLAPagedAttentionBackend(
+            num_layers=num_layers,
+            latent_dim=_LATENT_DIM,
+            block_size=16,
+            dtype=mx.float16,
+        )
+        backend.initialize(5)
+        return backend
+
+    def test_replaces_all_attention_layers(self) -> None:
+        model = _FakeModel(num_layers=3)
+
+        n = self._make_backend(num_layers=3).patch_model(model)
+
+        assert n == 3
+        for layer in model.model.layers:
+            assert isinstance(layer.self_attn, MLAPagedAttentionWrapper)
+
+    def test_wrapped_layer_has_correct_index(self) -> None:
+        model = _FakeModel(num_layers=2)
+
+        self._make_backend(num_layers=2).patch_model(model)
+
+        for idx, layer in enumerate(model.model.layers):
+            assert layer.self_attn._mla_layer_idx == idx
+
+    def test_already_patched_layers_update_cache_reference(self) -> None:
+        model = _FakeModel(num_layers=1)
+        backend_a = self._make_backend(num_layers=1)
+        backend_b = self._make_backend(num_layers=1)
+        backend_a.patch_model(model)
+
+        n = backend_b.patch_model(model)
+
+        assert n == 1
+        assert model.model.layers[0].self_attn._mla_latent_cache is backend_b._cache
+
+    def test_returns_correct_patch_count(self) -> None:
+        for n_layers in (1, 4, 10):
+            model = _FakeModel(num_layers=n_layers)
+
+            count = self._make_backend(num_layers=n_layers).patch_model(model)
+
+            assert count == n_layers
+
+
+class TestMLAPagedAttentionWrapperFallback:
+    def test_delegates_to_inner_when_no_paged_context(self) -> None:
+        sentinel = object()
+        inner = MagicMock(return_value=sentinel)
+        latent_cache = MagicMock(spec=MLAPagedLatentCache)
+
+        wrapper = MLAPagedAttentionWrapper(
+            inner, layer_idx=0, latent_cache=latent_cache
+        )
+
+        x = mx.zeros((1, 3, 64))
+        result = wrapper(x, mask=None, cache=None)
+
+        inner.assert_called_once_with(x, mask=None, cache=None)
+        assert result is sentinel
+
+    def test_passes_mask_and_cache_to_inner(self) -> None:
+        inner = MagicMock(return_value=mx.zeros((1, 2, 32)))
+        latent_cache = MagicMock(spec=MLAPagedLatentCache)
+        wrapper = MLAPagedAttentionWrapper(
+            inner, layer_idx=1, latent_cache=latent_cache
+        )
+        x = mx.zeros((1, 2, 32))
+        mask = object()
+        cache = object()
+
+        wrapper(x, mask=mask, cache=cache)
+
+        inner.assert_called_once_with(x, mask=mask, cache=cache)
+
+
+_HIDDEN = 32
+_NUM_HEADS = 2
+_NOPE_DIM = 8  # qk_nope_head_dim
+_ROPE_DIM = 4  # qk_rope_head_dim
+_KV_RANK = 16  # kv_lora_rank
+_V_DIM = 8  # v_head_dim
+_Q_LORA_RANK = 12  # q_lora_rank
+
+
+class _MinimalMLAInner(nn.Module):
+    """Minimal MLA attention stub with correct shapes for paged path tests."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.q_lora_rank = None
+        self.num_heads = _NUM_HEADS
+        self.q_head_dim = _NOPE_DIM + _ROPE_DIM
+        self.qk_nope_head_dim = _NOPE_DIM
+        self.qk_rope_head_dim = _ROPE_DIM
+        self.kv_lora_rank = _KV_RANK
+        self.scale = 1.0 / math.sqrt(_KV_RANK)
+
+        self.q_proj = nn.Linear(_HIDDEN, _NUM_HEADS * self.q_head_dim, bias=False)
+        self.kv_a_proj_with_mqa = nn.Linear(_HIDDEN, _KV_RANK + _ROPE_DIM, bias=False)
+        self.kv_a_layernorm = nn.LayerNorm(_KV_RANK)
+        self.embed_q = nn.Linear(_NOPE_DIM, _KV_RANK, bias=False)
+        self.unembed_out = nn.Linear(_KV_RANK, _V_DIM, bias=False)
+        self.o_proj = nn.Linear(_NUM_HEADS * _V_DIM, _HIDDEN, bias=False)
+
+    def rope(self, x: mx.array, offset: int = 0) -> mx.array:
+        # Identity RoPE: preserves shape, sufficient for testing shape logic.
+        return x
+
+
+class _MiniCPM3StyleInner(nn.Module):
+    """MLA stub shaped like MiniCPM3: softmax_scale and kv_b_proj only."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.q_lora_rank = _Q_LORA_RANK
+        self.num_heads = _NUM_HEADS
+        self.q_head_dim = _NOPE_DIM + _ROPE_DIM
+        self.qk_nope_head_dim = _NOPE_DIM
+        self.qk_rope_head_dim = _ROPE_DIM
+        self.kv_lora_rank = _KV_RANK
+        self.softmax_scale = 0.37
+
+        self.q_a_proj = nn.Linear(_HIDDEN, _Q_LORA_RANK, bias=False)
+        self.q_a_layernorm = nn.LayerNorm(_Q_LORA_RANK)
+        self.q_b_proj = nn.Linear(
+            _Q_LORA_RANK, _NUM_HEADS * self.q_head_dim, bias=False
+        )
+        self.kv_a_proj_with_mqa = nn.Linear(_HIDDEN, _KV_RANK + _ROPE_DIM, bias=False)
+        self.kv_a_layernorm = nn.LayerNorm(_KV_RANK)
+        self.kv_b_proj = nn.Linear(
+            _KV_RANK, _NUM_HEADS * (_NOPE_DIM + _V_DIM), bias=False
+        )
+        self.o_proj = nn.Linear(_NUM_HEADS * _V_DIM, _HIDDEN, bias=False)
+
+    def rope(self, x: mx.array, offset: int = 0) -> mx.array:
+        return x
+
+
+def _minicpm3_dense_reference(
+    inner: _MiniCPM3StyleInner,
+    x: mx.array,
+    *,
+    cache_dtype: mx.Dtype,
+) -> mx.array:
+    _, seq_len, _ = x.shape
+
+    q = inner.q_b_proj(inner.q_a_layernorm(inner.q_a_proj(x)))
+    q = q.reshape(1, seq_len, inner.num_heads, inner.q_head_dim).transpose(0, 2, 1, 3)
+    q_nope, q_pe = mx.split(q, [inner.qk_nope_head_dim], axis=-1)
+
+    kv_out = inner.kv_a_proj_with_mqa(x)
+    compressed_kv, k_pe = mx.split(kv_out, [inner.kv_lora_rank], axis=-1)
+    kv_norm = inner.kv_a_layernorm(compressed_kv).astype(cache_dtype)
+    k_pe = k_pe.reshape(1, seq_len, 1, inner.qk_rope_head_dim).transpose(0, 2, 1, 3)
+    k_pe = k_pe.astype(cache_dtype)
+
+    kv = inner.kv_b_proj(kv_norm)
+    kv = kv.reshape(1, seq_len, inner.num_heads, -1).transpose(0, 2, 1, 3)
+    k_nope, values = mx.split(kv, [inner.qk_nope_head_dim], axis=-1)
+    k_pe = mx.broadcast_to(
+        k_pe,
+        (1, inner.num_heads, seq_len, inner.qk_rope_head_dim),
+    )
+
+    queries = mx.concatenate([q_nope, q_pe], axis=-1)
+    keys = mx.concatenate([k_nope, k_pe], axis=-1)
+    attn_mask = None
+    if seq_len > 1:
+        rows = mx.arange(seq_len).reshape(-1, 1)
+        cols = mx.arange(seq_len).reshape(1, -1)
+        valid = (cols <= rows).reshape(1, 1, seq_len, seq_len)
+        fill = mx.array(mx.finfo(queries.dtype).min, queries.dtype)
+        attn_mask = mx.where(valid, mx.array(0, queries.dtype), fill)
+
+    out = scaled_dot_product_attention(
+        queries,
+        keys,
+        values,
+        cache=None,
+        scale=inner.softmax_scale,
+        mask=attn_mask,
+    )
+    out = out.transpose(0, 2, 1, 3).reshape(1, seq_len, -1)
+    return inner.o_proj(out)
+
+
+class TestMLAPagedAttentionWrapperPagedPath:
+    """Exercises the paged attention computation path (PagedAttentionContext set)."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_ctx(self) -> Generator[None, None, None]:
+        pac.clear_context()
+        yield
+        pac.clear_context()
+
+    def _make_cache(self) -> MLAPagedLatentCache:
+        return MLAPagedLatentCache(
+            num_layers=1,
+            latent_dim=_KV_RANK + _ROPE_DIM,
+            num_blocks=4,
+            block_size=4,
+            dtype=mx.float16,
+        )
+
+    def test_decode_output_shape(self) -> None:
+        # 1 request, 3 cached tokens, 1 new decode token
+        inner = _MinimalMLAInner()
+        cache = self._make_cache()
+        wrapper = MLAPagedAttentionWrapper(inner, layer_idx=0, latent_cache=cache)
+
+        pac.set_context(
+            pac.PagedAttentionContext(
+                slot_mapping=[3],
+                block_tables=[[0]],
+                context_lens=[4],
+                cu_seqlens=[0, 1],
+                offsets=[3],
+            )
+        )
+
+        out = wrapper(
+            mx.random.normal((1, 1, _HIDDEN)).astype(mx.float16), mask=None, cache=None
+        )
+        mx.eval(out)
+
+        assert out.shape == (1, 1, _HIDDEN)
+
+    def test_prefill_output_shape(self) -> None:
+        # 1 request, 0 past tokens, 4 new prefill tokens
+        inner = _MinimalMLAInner()
+        cache = self._make_cache()
+        wrapper = MLAPagedAttentionWrapper(inner, layer_idx=0, latent_cache=cache)
+
+        pac.set_context(
+            pac.PagedAttentionContext(
+                slot_mapping=[0, 1, 2, 3],
+                block_tables=[[0]],
+                context_lens=[4],
+                cu_seqlens=[0, 4],
+                offsets=[0],
+            )
+        )
+
+        out = wrapper(
+            mx.random.normal((1, 4, _HIDDEN)).astype(mx.float16), mask=None, cache=None
+        )
+        mx.eval(out)
+
+        assert out.shape == (1, 4, _HIDDEN)
+
+    def test_cache_written_at_correct_slot(self) -> None:
+        # Scatter-write: only the assigned slot is non-zero after the call
+        inner = _MinimalMLAInner()
+        cache = self._make_cache()
+        wrapper = MLAPagedAttentionWrapper(inner, layer_idx=0, latent_cache=cache)
+
+        pac.set_context(
+            pac.PagedAttentionContext(
+                slot_mapping=[2],
+                block_tables=[[0]],
+                context_lens=[3],
+                cu_seqlens=[0, 1],
+                offsets=[2],
+            )
+        )
+
+        wrapper(
+            mx.random.normal((1, 1, _HIDDEN)).astype(mx.float16), mask=None, cache=None
+        )
+
+        # block 0, position 2 should now hold the new latent
+        written = cache.latent_caches[0][0, 2, :]
+        untouched = cache.latent_caches[0][0, 0, :]
+
+        assert bool(mx.any(written != 0))
+        assert not bool(mx.any(untouched != 0))
+
+    def test_two_decode_requests_combined_output_shape(self) -> None:
+        # Two decode requests in one batch — outputs must be concatenated along seq axis.
+        inner = _MinimalMLAInner()
+        cache = self._make_cache()
+        wrapper = MLAPagedAttentionWrapper(inner, layer_idx=0, latent_cache=cache)
+
+        # Request A: 2 past tokens, decode token at slot 2 in block 0
+        # Request B: 1 past token,  decode token at slot 5 in block 1
+        pac.set_context(
+            pac.PagedAttentionContext(
+                slot_mapping=[2, 5],
+                block_tables=[[0], [1]],
+                context_lens=[3, 2],
+                cu_seqlens=[0, 1, 2],
+                offsets=[2, 1],
+            )
+        )
+
+        x = mx.random.normal((1, 2, _HIDDEN)).astype(mx.float16)
+        out = wrapper(x, mask=None, cache=None)
+        mx.eval(out)
+
+        assert out.shape == (1, 2, _HIDDEN)
+
+    def test_causal_mask_token0_output_independent_of_later_tokens(self) -> None:
+        # Token 0 in a prefill can only attend to itself (causal mask).
+        # Changing tokens 1-3 must not change token 0's output.
+        inner = _MinimalMLAInner()
+
+        # Run 1: prefill with input_a
+        cache_a = self._make_cache()
+        wrapper_a = MLAPagedAttentionWrapper(inner, layer_idx=0, latent_cache=cache_a)
+        pac.set_context(
+            pac.PagedAttentionContext(
+                slot_mapping=[0, 1, 2, 3],
+                block_tables=[[0]],
+                context_lens=[4],
+                cu_seqlens=[0, 4],
+                offsets=[0],
+            )
+        )
+        mx.random.seed(0)
+        token0 = mx.random.normal((1, 1, _HIDDEN)).astype(mx.float16)
+        other = mx.random.normal((1, 3, _HIDDEN)).astype(mx.float16)
+        input_a = mx.concatenate([token0, other], axis=1)
+        out_a = wrapper_a(input_a, mask=None, cache=None)
+        mx.eval(out_a)
+
+        pac.clear_context()
+
+        # Run 2: same token 0, completely different tokens 1-3
+        cache_b = self._make_cache()
+        wrapper_b = MLAPagedAttentionWrapper(inner, layer_idx=0, latent_cache=cache_b)
+        pac.set_context(
+            pac.PagedAttentionContext(
+                slot_mapping=[0, 1, 2, 3],
+                block_tables=[[0]],
+                context_lens=[4],
+                cu_seqlens=[0, 4],
+                offsets=[0],
+            )
+        )
+        mx.random.seed(99)
+        different_other = mx.random.normal((1, 3, _HIDDEN)).astype(mx.float16)
+        input_b = mx.concatenate([token0, different_other], axis=1)
+        out_b = wrapper_b(input_b, mask=None, cache=None)
+        mx.eval(out_b)
+
+        # Token 0 output must be identical — it attends only to position 0
+        assert bool(mx.all(out_a[0, 0, :] == out_b[0, 0, :]))
+
+    def test_minicpm3_style_prefill_matches_dense_reference(self) -> None:
+        inner = _MiniCPM3StyleInner()
+        cache = self._make_cache()
+        wrapper = MLAPagedAttentionWrapper(inner, layer_idx=0, latent_cache=cache)
+
+        pac.set_context(
+            pac.PagedAttentionContext(
+                slot_mapping=[0, 1, 2, 3],
+                block_tables=[[0]],
+                context_lens=[4],
+                cu_seqlens=[0, 4],
+                offsets=[0],
+            )
+        )
+
+        mx.random.seed(7)
+        x = mx.random.normal((1, 4, _HIDDEN)).astype(mx.float16)
+        out = wrapper(x, mask=None, cache=None)
+        expected = _minicpm3_dense_reference(inner, x, cache_dtype=cache.dtype)
+        mx.eval(out, expected)
+
+        assert bool(mx.allclose(out, expected, rtol=1e-3, atol=1e-3))
+
+    def test_minicpm3_style_decode_matches_dense_reference(self) -> None:
+        inner = _MiniCPM3StyleInner()
+        cache = self._make_cache()
+        wrapper = MLAPagedAttentionWrapper(inner, layer_idx=0, latent_cache=cache)
+
+        mx.random.seed(11)
+        past = mx.random.normal((1, 3, _HIDDEN)).astype(mx.float16)
+        new = mx.random.normal((1, 1, _HIDDEN)).astype(mx.float16)
+
+        pac.set_context(
+            pac.PagedAttentionContext(
+                slot_mapping=[0, 1, 2],
+                block_tables=[[0]],
+                context_lens=[3],
+                cu_seqlens=[0, 3],
+                offsets=[0],
+            )
+        )
+        wrapper(past, mask=None, cache=None)
+        pac.clear_context()
+
+        pac.set_context(
+            pac.PagedAttentionContext(
+                slot_mapping=[3],
+                block_tables=[[0]],
+                context_lens=[4],
+                cu_seqlens=[0, 1],
+                offsets=[3],
+            )
+        )
+        out = wrapper(new, mask=None, cache=None)
+        dense = _minicpm3_dense_reference(
+            inner,
+            mx.concatenate([past, new], axis=1),
+            cache_dtype=cache.dtype,
+        )
+        expected = dense[:, -1:, :]
+        mx.eval(out, expected)
+
+        assert bool(mx.allclose(out, expected, rtol=1e-3, atol=1e-3))
+
+
+# Single-pass kernel dimensions (matches mla.metal instantiation).
+_KERNEL_KV_RANK = 512
+_KERNEL_ROPE_DIM = 64
+_KERNEL_NOPE_DIM = 128
+_KERNEL_V_DIM = 128
+
+
+class _KernelDimsAbsorbedInner(nn.Module):
+    """Absorbed-MLA inner stub shaped to match the single-pass kernel
+    instantiation (kv_lora_rank=512, qk_rope_head_dim=64). Used by the
+    routing admission tests so ``_can_use_kernel`` actually exercises
+    the accept path."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.q_lora_rank = None
+        self.num_heads = 8  # multiple of 2 so _pick_heads_per_tg returns 2
+        self.q_head_dim = _KERNEL_NOPE_DIM + _KERNEL_ROPE_DIM
+        self.qk_nope_head_dim = _KERNEL_NOPE_DIM
+        self.qk_rope_head_dim = _KERNEL_ROPE_DIM
+        self.kv_lora_rank = _KERNEL_KV_RANK
+        self.scale = 1.0 / math.sqrt(_KERNEL_KV_RANK)
+        # embed_q / unembed_out presence is what flags the inner as absorbed.
+        self.embed_q = nn.Linear(_KERNEL_NOPE_DIM, _KERNEL_KV_RANK, bias=False)
+        self.unembed_out = nn.Linear(_KERNEL_KV_RANK, _KERNEL_V_DIM, bias=False)
+
+
+def _make_kernel_dims_wrapper(
+    *, block_size: int = 16, dtype: mx.Dtype = mx.float16
+) -> MLAPagedAttentionWrapper:
+    cache = MLAPagedLatentCache(
+        num_layers=1,
+        latent_dim=_KERNEL_KV_RANK + _KERNEL_ROPE_DIM,
+        num_blocks=4,
+        block_size=block_size,
+        dtype=dtype,
+    )
+    return MLAPagedAttentionWrapper(
+        inner=_KernelDimsAbsorbedInner(), layer_idx=0, latent_cache=cache
+    )
+
+
+def _make_decode_ctx(num_seqs: int = 1) -> SimpleNamespace:
+    """Single-token-per-seq decode context, just enough for
+    ``_can_use_kernel`` to inspect."""
+    return SimpleNamespace(
+        context_lens=[16] * num_seqs,
+        cu_seqlens=list(range(num_seqs + 1)),
+        block_tables=[[0]] * num_seqs,
+    )
+
+
+class TestSinglePassRouting:
+    """Focused tests for the env-gated single-pass kernel fast path.
+    Each test exercises one admission rule of ``_can_use_kernel`` —
+    no exhaustive cell sweeps. Per the alignment with reviewers on
+    ``Ship one kernel, prove it wins'', the kernel routing is a
+    single boolean gate, not a multi-variant priority chain."""
+
+    def test_env_off_rejects(self, monkeypatch) -> None:
+        monkeypatch.setattr("vllm_metal.envs.VLLM_METAL_MLA_KERNEL", False)
+        wrapper = _make_kernel_dims_wrapper()
+        assert (
+            wrapper._can_use_kernel(
+                wrapper._inner, wrapper._mla_latent_cache, _make_decode_ctx()
+            )
+            is False
+        )
+
+    def test_env_on_accepts(self, monkeypatch) -> None:
+        monkeypatch.setattr("vllm_metal.envs.VLLM_METAL_MLA_KERNEL", True)
+        wrapper = _make_kernel_dims_wrapper()
+        assert (
+            wrapper._can_use_kernel(
+                wrapper._inner, wrapper._mla_latent_cache, _make_decode_ctx()
+            )
+            is True
+        )
+
+    def test_non_absorbed_rejects(self, monkeypatch) -> None:
+        """Inner without embed_q / unembed_out (kv_b_proj-style models
+        like MiniCPM3) is not routed through the absorbed-MLA kernel."""
+        monkeypatch.setattr("vllm_metal.envs.VLLM_METAL_MLA_KERNEL", True)
+        cache = MLAPagedLatentCache(
+            num_layers=1,
+            latent_dim=_KERNEL_KV_RANK + _KERNEL_ROPE_DIM,
+            num_blocks=4,
+            block_size=16,
+            dtype=mx.float16,
+        )
+        wrapper = MLAPagedAttentionWrapper(
+            inner=_MiniCPM3StyleInner(), layer_idx=0, latent_cache=cache
+        )
+        assert (
+            wrapper._can_use_kernel(
+                wrapper._inner, wrapper._mla_latent_cache, _make_decode_ctx()
+            )
+            is False
+        )
+
+    def test_wrong_kv_lora_rank_rejects(self, monkeypatch) -> None:
+        monkeypatch.setattr("vllm_metal.envs.VLLM_METAL_MLA_KERNEL", True)
+        wrapper = _make_kernel_dims_wrapper()
+        wrapper._inner.kv_lora_rank = 256  # not 512
+        assert (
+            wrapper._can_use_kernel(
+                wrapper._inner, wrapper._mla_latent_cache, _make_decode_ctx()
+            )
+            is False
+        )
+
+    def test_wrong_qk_rope_head_dim_rejects(self, monkeypatch) -> None:
+        monkeypatch.setattr("vllm_metal.envs.VLLM_METAL_MLA_KERNEL", True)
+        wrapper = _make_kernel_dims_wrapper()
+        wrapper._inner.qk_rope_head_dim = 32  # not 64
+        assert (
+            wrapper._can_use_kernel(
+                wrapper._inner, wrapper._mla_latent_cache, _make_decode_ctx()
+            )
+            is False
+        )
+
+    def test_unsupported_block_size_rejects(self, monkeypatch) -> None:
+        monkeypatch.setattr("vllm_metal.envs.VLLM_METAL_MLA_KERNEL", True)
+        wrapper = _make_kernel_dims_wrapper(block_size=64)  # not in {16, 32}
+        assert (
+            wrapper._can_use_kernel(
+                wrapper._inner, wrapper._mla_latent_cache, _make_decode_ctx()
+            )
+            is False
+        )
+
+    def test_unsupported_dtype_rejects(self, monkeypatch) -> None:
+        monkeypatch.setattr("vllm_metal.envs.VLLM_METAL_MLA_KERNEL", True)
+        wrapper = _make_kernel_dims_wrapper(dtype=mx.float32)
+        assert (
+            wrapper._can_use_kernel(
+                wrapper._inner, wrapper._mla_latent_cache, _make_decode_ctx()
+            )
+            is False
+        )
+
+    def test_multi_token_query_rejects(self, monkeypatch) -> None:
+        """Decode-only kernel — any request with >1 query token must
+        fall back to MLX (varlen prefill is a follow-up)."""
+        monkeypatch.setattr("vllm_metal.envs.VLLM_METAL_MLA_KERNEL", True)
+        wrapper = _make_kernel_dims_wrapper()
+        prefill_ctx = SimpleNamespace(
+            context_lens=[16],
+            cu_seqlens=[0, 4],  # 4 query tokens for seq 0
+            block_tables=[[0]],
+        )
+        assert (
+            wrapper._can_use_kernel(
+                wrapper._inner, wrapper._mla_latent_cache, prefill_ctx
+            )
+            is False
+        )
+
+    @pytest.mark.parametrize(
+        "num_heads,batch_size,expected_g",
+        [
+            (1, 1, 1),  # odd num_heads → fall back to G=1
+            (16, 1, 1),  # B=1 small H → G=1 (better single-TG utilization)
+            (16, 8, 2),  # B*H ≳ 30 → G=2 wins
+            (32, 1, 2),  # B=1 but H≥32 → G=2 saturates GPU
+        ],
+    )
+    def test_pick_heads_per_tg(
+        self, num_heads: int, batch_size: int, expected_g: int
+    ) -> None:
+        assert (
+            MLAPagedAttentionWrapper._pick_heads_per_tg(num_heads, batch_size)
+            == expected_g
+        )
