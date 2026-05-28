@@ -1,0 +1,405 @@
+{
+  "config": "combined",
+  "requests": [
+    {
+      "agent_type": "coding",
+      "query_idx": 0,
+      "query": "Implement a thread-safe LRU cache in Python with O(1) get an",
+      "ttft": 0.02122134800083586,
+      "total_time": 0.02122134800083586,
+      "cache_state": "cold",
+      "turn_num": 1,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 1,
+      "query": "What are the main architectural differences between transfor",
+      "ttft": 1.3786821239991696,
+      "total_time": 1.3786821239991696,
+      "cache_state": "cold",
+      "turn_num": 1,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 2,
+      "query": "Write a Python context manager that retries a block up to N ",
+      "ttft": 1.4260240479998174,
+      "total_time": 1.4260240479998174,
+      "cache_state": "cold",
+      "turn_num": 2,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 3,
+      "query": "Explain how RLHF differs from DPO in LLM fine-tuning.",
+      "ttft": 1.3372143910019076,
+      "total_time": 1.3372143910019076,
+      "cache_state": "cold",
+      "turn_num": 2,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 4,
+      "query": "Design a rate limiter class using the token bucket algorithm",
+      "ttft": 1.212242420999246,
+      "total_time": 1.212242420999246,
+      "cache_state": "cold",
+      "turn_num": 3,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 5,
+      "query": "What is the current state of quantum computing for practical",
+      "ttft": 1.4080443009988812,
+      "total_time": 1.4080443009988812,
+      "cache_state": "cold",
+      "turn_num": 3,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 6,
+      "query": "Implement a trie for autocomplete with insert and search met",
+      "ttft": 1.2468847519994597,
+      "total_time": 1.2468847519994597,
+      "cache_state": "cold",
+      "turn_num": 4,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 7,
+      "query": "Summarize the key ideas behind retrieval-augmented generatio",
+      "ttft": 1.4286645609972766,
+      "total_time": 1.4286645609972766,
+      "cache_state": "cold",
+      "turn_num": 4,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 8,
+      "query": "Write a decorator that caches function results with a TTL.",
+      "ttft": 1.3227464230003534,
+      "total_time": 1.3227464230003534,
+      "cache_state": "cold",
+      "turn_num": 5,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 9,
+      "query": "How does PagedAttention improve GPU memory efficiency in LLM",
+      "ttft": 1.4103377490027924,
+      "total_time": 1.4103377490027924,
+      "cache_state": "cold",
+      "turn_num": 5,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 10,
+      "query": "Optimize this O(n^2) solution to find pairs summing to a tar",
+      "ttft": 1.3762871109975094,
+      "total_time": 1.3762871109975094,
+      "cache_state": "cold",
+      "turn_num": 6,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 11,
+      "query": "What were the main contributions of the Attention is All You",
+      "ttft": 1.291353145003086,
+      "total_time": 1.291353145003086,
+      "cache_state": "cold",
+      "turn_num": 6,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 12,
+      "query": "Implement consistent hashing for a distributed cache.",
+      "ttft": 1.3871672460008995,
+      "total_time": 1.3871672460008995,
+      "cache_state": "cold",
+      "turn_num": 7,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 13,
+      "query": "Explain the difference between KV cache quantization and wei",
+      "ttft": 1.3506699260033201,
+      "total_time": 1.3506699260033201,
+      "cache_state": "cold",
+      "turn_num": 7,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 14,
+      "query": "Write a generator that streams large CSV files without loadi",
+      "ttft": 1.2292609460018866,
+      "total_time": 1.2292609460018866,
+      "cache_state": "cold",
+      "turn_num": 8,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 15,
+      "query": "What is speculative decoding and how does it speed up infere",
+      "ttft": 1.3384553500000038,
+      "total_time": 1.3384553500000038,
+      "cache_state": "cold",
+      "turn_num": 8,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 16,
+      "query": "Implement BFS and DFS on a graph represented as an adjacency",
+      "ttft": 1.348434930001531,
+      "total_time": 1.348434930001531,
+      "cache_state": "cold",
+      "turn_num": 9,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 17,
+      "query": "How does FlashAttention reduce memory usage compared to stan",
+      "ttft": 1.267085756000597,
+      "total_time": 1.267085756000597,
+      "cache_state": "cold",
+      "turn_num": 9,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 18,
+      "query": "Design a simple pub/sub event system in Python.",
+      "ttft": 1.3299814589991001,
+      "total_time": 1.3299814589991001,
+      "cache_state": "cold",
+      "turn_num": 10,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 19,
+      "query": "What are the tradeoffs between beam search and sampling for ",
+      "ttft": 1.278181007000967,
+      "total_time": 1.278181007000967,
+      "cache_state": "cold",
+      "turn_num": 10,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 0,
+      "query": "Implement a thread-safe LRU cache in Python with O(1) get an",
+      "ttft": 1.3605752820003545,
+      "total_time": 1.3605752820003545,
+      "cache_state": "warm",
+      "turn_num": 1,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 1,
+      "query": "What are the main architectural differences between transfor",
+      "ttft": 1.309780226998555,
+      "total_time": 1.309780226998555,
+      "cache_state": "warm",
+      "turn_num": 1,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 2,
+      "query": "Write a Python context manager that retries a block up to N ",
+      "ttft": 1.2130180569984077,
+      "total_time": 1.2130180569984077,
+      "cache_state": "warm",
+      "turn_num": 2,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 3,
+      "query": "Explain how RLHF differs from DPO in LLM fine-tuning.",
+      "ttft": 1.3952019619973726,
+      "total_time": 1.3952019619973726,
+      "cache_state": "warm",
+      "turn_num": 2,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 4,
+      "query": "Design a rate limiter class using the token bucket algorithm",
+      "ttft": 1.2441997650021221,
+      "total_time": 1.2441997650021221,
+      "cache_state": "warm",
+      "turn_num": 3,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 5,
+      "query": "What is the current state of quantum computing for practical",
+      "ttft": 1.3475631799992698,
+      "total_time": 1.3475631799992698,
+      "cache_state": "warm",
+      "turn_num": 3,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 6,
+      "query": "Implement a trie for autocomplete with insert and search met",
+      "ttft": 1.3635882919988944,
+      "total_time": 1.3635882919988944,
+      "cache_state": "warm",
+      "turn_num": 4,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 7,
+      "query": "Summarize the key ideas behind retrieval-augmented generatio",
+      "ttft": 1.3757289089990081,
+      "total_time": 1.3757289089990081,
+      "cache_state": "warm",
+      "turn_num": 4,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 8,
+      "query": "Write a decorator that caches function results with a TTL.",
+      "ttft": 1.2893255510025483,
+      "total_time": 1.2893255510025483,
+      "cache_state": "warm",
+      "turn_num": 5,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 9,
+      "query": "How does PagedAttention improve GPU memory efficiency in LLM",
+      "ttft": 1.2198257400013972,
+      "total_time": 1.2198257400013972,
+      "cache_state": "warm",
+      "turn_num": 5,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 10,
+      "query": "Optimize this O(n^2) solution to find pairs summing to a tar",
+      "ttft": 1.4432800579998002,
+      "total_time": 1.4432800579998002,
+      "cache_state": "warm",
+      "turn_num": 6,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 11,
+      "query": "What were the main contributions of the Attention is All You",
+      "ttft": 1.2706041040000855,
+      "total_time": 1.2706041040000855,
+      "cache_state": "warm",
+      "turn_num": 6,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 12,
+      "query": "Implement consistent hashing for a distributed cache.",
+      "ttft": 1.352604624000378,
+      "total_time": 1.352604624000378,
+      "cache_state": "warm",
+      "turn_num": 7,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 13,
+      "query": "Explain the difference between KV cache quantization and wei",
+      "ttft": 1.2297288840018155,
+      "total_time": 1.2297288840018155,
+      "cache_state": "warm",
+      "turn_num": 7,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 14,
+      "query": "Write a generator that streams large CSV files without loadi",
+      "ttft": 1.4313872279999487,
+      "total_time": 1.4313872279999487,
+      "cache_state": "warm",
+      "turn_num": 8,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 15,
+      "query": "What is speculative decoding and how does it speed up infere",
+      "ttft": 1.2853085909991933,
+      "total_time": 1.2853085909991933,
+      "cache_state": "warm",
+      "turn_num": 8,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 16,
+      "query": "Implement BFS and DFS on a graph represented as an adjacency",
+      "ttft": 1.320806307001476,
+      "total_time": 1.320806307001476,
+      "cache_state": "warm",
+      "turn_num": 9,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 17,
+      "query": "How does FlashAttention reduce memory usage compared to stan",
+      "ttft": 1.2433192530006636,
+      "total_time": 1.2433192530006636,
+      "cache_state": "warm",
+      "turn_num": 9,
+      "output": ""
+    },
+    {
+      "agent_type": "coding",
+      "query_idx": 18,
+      "query": "Design a simple pub/sub event system in Python.",
+      "ttft": 1.1620685060006508,
+      "total_time": 1.1620685060006508,
+      "cache_state": "warm",
+      "turn_num": 10,
+      "output": ""
+    },
+    {
+      "agent_type": "search",
+      "query_idx": 19,
+      "query": "What are the tradeoffs between beam search and sampling for ",
+      "ttft": 1.2379018520005047,
+      "total_time": 1.2379018520005047,
+      "cache_state": "warm",
+      "turn_num": 10,
+      "output": ""
+    }
+  ]
+}
