@@ -609,7 +609,6 @@ class Scheduler(SchedulerInterface):
                 num_external_computed_tokens = 0
                 load_kv_async = False
                 connector_prefix_cache_queries, connector_prefix_cache_hits = 0, 0
-                _lmcache_ext = 0  # LMCache's actual hit count, pre-centroid gap
 
                 # Get already-cached tokens.
                 if request.num_computed_tokens == 0:
@@ -640,7 +639,6 @@ class Scheduler(SchedulerInterface):
                             request.num_tokens - num_new_local_computed_tokens
                         )
                         connector_prefix_cache_hits = num_external_computed_tokens
-                        _lmcache_ext = num_external_computed_tokens  # save before centroid gap
 
                     # centroid Path B: inflate external-computed count to cover
                     # the warm-started system prefix when no real KV-cache hit
@@ -766,7 +764,7 @@ class Scheduler(SchedulerInterface):
                         request,
                         num_new_computed_tokens=num_new_local_computed_tokens,
                         new_computed_blocks=new_computed_blocks,
-                        num_external_computed_tokens=_lmcache_ext,
+                        num_external_computed_tokens=num_external_computed_tokens,
                         num_encoder_tokens=num_encoder_tokens,
                     )
                 ):
@@ -776,11 +774,11 @@ class Scheduler(SchedulerInterface):
 
                 new_blocks = self.kv_cache_manager.allocate_slots(
                     request,
-                    num_new_tokens + (num_external_computed_tokens - _lmcache_ext),
+                    num_new_tokens,
                     num_new_computed_tokens=num_new_local_computed_tokens,
                     new_computed_blocks=new_computed_blocks,
                     num_lookahead_tokens=effective_lookahead_tokens,
-                    num_external_computed_tokens=_lmcache_ext,
+                    num_external_computed_tokens=num_external_computed_tokens,
                     delay_cache_blocks=load_kv_async,
                     num_encoder_tokens=num_encoder_tokens,
                 )
@@ -802,7 +800,7 @@ class Scheduler(SchedulerInterface):
                     self.connector.update_state_after_alloc(
                         request,
                         self.kv_cache_manager.get_blocks(request_id),
-                        _lmcache_ext,  # centroid gap excluded; connector owns only true LMCache hits
+                        num_external_computed_tokens,
                     )
                     if (
                         self.connector_prefix_cache_stats is not None

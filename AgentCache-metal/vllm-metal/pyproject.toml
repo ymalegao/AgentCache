@@ -1,0 +1,110 @@
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "vllm-metal"
+version = "0.2.0"
+description = "vLLM hardware plugin for Apple Silicon - unifies MLX and PyTorch under a single lowering path"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.12,<3.14"
+authors = [
+    {name = "vLLM Community"}
+]
+keywords = ["vllm", "metal", "mlx", "apple", "silicon", "mps", "llm", "inference", "rust"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    # MLX - Required for Apple Silicon GPU acceleration
+    # Upper-bound: paged_ops.cpp uses mlx/backend/metal/device.h (private API).
+    # Bump after verifying the JIT build against the new MLX minor release.
+    "mlx>=0.31.0,<0.32.0; platform_system == 'Darwin' and platform_machine == 'arm64'",
+    "mlx-lm>=0.31.3; platform_system == 'Darwin' and platform_machine == 'arm64'",
+    # Keep below 0.5.0 while vLLM 0.20.1 requires llguidance<1.4.0.
+    # mlx-vlm 0.5.0 requires llguidance>=1.7.0.
+    "mlx-vlm>=0.4.0,<0.5.0; platform_system == 'Darwin' and platform_machine == 'arm64'",
+    # Model loading and weights
+    # Lower bound aligned with vllm 0.21.0's exclude list in requirements/common.txt
+    "transformers>=5.5.1",
+    "accelerate>=0.26.0",
+    "safetensors>=0.4.0",
+    # Native Metal extension JIT build
+    "nanobind==2.10.2; platform_system == 'Darwin' and platform_machine == 'arm64'",
+    # Core utilities
+    "numpy>=1.24.0",
+    "psutil>=5.9.0",
+]
+
+[project.optional-dependencies]
+stt = [
+    # Speech-to-text audio processing (Whisper models)
+    "librosa>=0.10.2",
+    "numba>=0.59.0",  # Required by librosa on Python 3.12+
+]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "mypy>=1.19.1",
+]
+all = [
+    "vllm-metal[stt,dev]",
+]
+
+[project.urls]
+Homepage = "https://github.com/vllm-project/vllm-metal"
+Repository = "https://github.com/vllm-project/vllm-metal"
+Issues = "https://github.com/vllm-project/vllm-metal/issues"
+
+# vLLM Plugin Entry Points
+[project.entry-points."vllm.platform_plugins"]
+metal = "vllm_metal:register"
+
+# Maturin configuration for mixed Rust/Python project
+[tool.maturin]
+# Build both the Rust extension and include Python source
+features = ["pyo3/extension-module"]
+# Include Python package in the wheel
+python-source = "."
+# Module name matches the Rust crate name
+module-name = "vllm_metal._rs"
+# Strip symbols for smaller binary
+strip = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+exclude = ["extern", ".venv*", "test_vllm.py", "target"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+ignore = ["E501", "UP040"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = false
+warn_unused_configs = true
+ignore_missing_imports = true
+# Disable strict checks for out-of-tree plugin compatibility
+disable_error_code = ["override", "misc", "assignment", "arg-type", "index", "call-arg", "attr-defined"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# By default, run all tests (including "slow"). Use `pytest -m "not slow"` for a
+# fast loop (CI already does this).
+markers = [
+    "slow: opt-in performance or long-running tests",
+]

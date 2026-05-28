@@ -53,7 +53,7 @@ def load_sys_prefix_token_count(centroid_k_path: str) -> int:
     if sidecar.is_file():
         return int(sidecar.read_text().strip())
     logger.warning(
-        "No VLLM_CENTROID_SYS_TOKENS and no %s — using 128 (likely wrong; set env "
+        "No VLLM_CENTROID_SYS_TOKENS and no %s, using 128 (likely wrong, set env "
         "or add sys_prefix_num_tokens.txt next to centroids)",
         sidecar,
     )
@@ -61,11 +61,12 @@ def load_sys_prefix_token_count(centroid_k_path: str) -> int:
 
 
 class CentroidInjector:
-    def __init__(self, centroid_K_path, centroid_V_path, device="cuda"):
+    def __init__(self, centroid_K_path, centroid_V_path, device="cuda",
+                 centroid_K_path_2=None, centroid_V_path_2=None):
         K = np.load(centroid_K_path)
         V = np.load(centroid_V_path)
         self.num_layers = K.shape[0]
-        
+
         if K.ndim == 2:
             self.centroid_len = 1
             self.K = torch.tensor(K, dtype=torch.float16, device=device).unsqueeze(1)
@@ -76,11 +77,39 @@ class CentroidInjector:
             self.K = torch.tensor(K[:, :self.centroid_len, :], dtype=torch.float16, device=device)
             self.V = torch.tensor(V[:, :self.centroid_len, :], dtype=torch.float16, device=device)
 
+        # ── Optional secondary (domain-2) centroid ─────────────────────────────
+        # Loaded when VLLM_CENTROID_K_PATH_2 is set (or passed directly).
+        # Requests whose req_id starts with VLLM_CENTROID_DOMAIN_2_PREFIX get K2/V2.
+        k2_path = centroid_K_path_2 or os.environ.get("VLLM_CENTROID_K_PATH_2")
+        v2_path = centroid_V_path_2 or os.environ.get("VLLM_CENTROID_V_PATH_2")
+        self.domain_2_prefix: str | None = None
+        self.K2: torch.Tensor | None = None
+        self.V2: torch.Tensor | None = None
+        self.centroid_len_2: int = 0
+        if k2_path and v2_path and os.path.exists(k2_path) and os.path.exists(v2_path):
+            K2 = np.load(k2_path)
+            V2 = np.load(v2_path)
+            if K2.ndim == 2:
+                self.centroid_len_2 = 1
+                self.K2 = torch.tensor(K2, dtype=torch.float16, device=device).unsqueeze(1)
+                self.V2 = torch.tensor(V2, dtype=torch.float16, device=device).unsqueeze(1)
+            else:
+                cap2 = int(os.environ.get("VLLM_CENTROID_LEN_2", K2.shape[1]))
+                self.centroid_len_2 = min(cap2, K2.shape[1])
+                self.K2 = torch.tensor(K2[:, :self.centroid_len_2, :], dtype=torch.float16, device=device)
+                self.V2 = torch.tensor(V2[:, :self.centroid_len_2, :], dtype=torch.float16, device=device)
+            self.domain_2_prefix = os.environ.get("VLLM_CENTROID_DOMAIN_2_PREFIX", "search:")
+            logger.info(
+                "CentroidInjector: secondary centroid loaded from %s "
+                "(centroid_len_2=%s, domain_2_prefix=%r)",
+                k2_path, self.centroid_len_2, self.domain_2_prefix,
+            )
+
         self._centroid_k_path = centroid_K_path
         self.sys_token_count = load_sys_prefix_token_count(centroid_K_path)
         self.use_lmcache = os.environ.get("VLLM_CENTROID_USE_LMCACHE", "0") == "1"
         self.sink_blend = float(os.environ.get("VLLM_CENTROID_SINK_BLEND", "0.35"))
-        
+
         self.sys_K = None
         self.sys_V = None
         if not self.use_lmcache:
@@ -101,13 +130,17 @@ class CentroidInjector:
         self._centroid_seeded_req_ids: set[str] = set()
         self._rope_k_cache_key: tuple[Any, ...] | None = None
         self._rope_k_cache_tensor: torch.Tensor | None = None
+        self._rope_k2_cache_key: tuple[Any, ...] | None = None
+        self._rope_k2_cache_tensor: torch.Tensor | None = None
         self._rope_sys_k_cache_tensor: torch.Tensor | None = None
         self._sink_k_template: torch.Tensor | None = None
         self._sink_v_template: torch.Tensor | None = None
         self._rope_sink_k_cache_tensor: torch.Tensor | None = None
         logger.info(
-            "CentroidInjector: layout=%s sys_token_count=%s centroid_len=%s use_lmcache=%s sink_blend=%.2f",
-            self.layout, self.sys_token_count, self.centroid_len, self.use_lmcache, self.sink_blend
+            "CentroidInjector: layout=%s sys_token_count=%s centroid_len=%s "
+            "centroid_len_2=%s use_lmcache=%s sink_blend=%.2f",
+            self.layout, self.sys_token_count, self.centroid_len,
+            self.centroid_len_2, self.use_lmcache, self.sink_blend,
         )
         if self.sys_K is not None and self.sys_V is not None and self.sys_K.shape[1] > 0:
             # A structural sink template avoids displacing the model's native sink
@@ -176,9 +209,9 @@ class CentroidInjector:
 
         if rotary_emb is None and not getattr(self, "_warned_unrotated_k", False):
             self._warned_unrotated_k = True
-            logger.warning("CentroidInjector: rotary_emb is None — injecting unrotated K")
+            logger.warning("CentroidInjector: rotary_emb is None, injecting unrotated K")
 
-        # After the first successful seed per request_id, KV slots are stable; skip
+        # After the first successful seed per request_id, KV slots are stable. Skip
         # RoPE + writes on every chunked-prefill / decode step (major host+GPU win).
         if req_ids is not None and num_reqs > 0:
             seeded = self._centroid_seeded_req_ids
@@ -269,23 +302,35 @@ class CentroidInjector:
                 f"shape={tuple(kv_tensor.shape)} layer_block_size={layer_block_size}"
             )
 
-        max_centroid_fill = 0
-        for seq in range(num_reqs):
-            fl = min(self.centroid_len, max(0, int(prompt_lens_np[seq]) - self.sys_token_count))
-            if fl > max_centroid_fill:
-                max_centroid_fill = fl
+        # ── Classify each request into primary (domain 1) or secondary (domain 2) ──
+        # Domain 2 requests have req_id starting with self.domain_2_prefix (e.g. "search:").
+        req_domain2: set[int] = set()
+        if self.K2 is not None and self.domain_2_prefix and req_ids is not None:
+            for seq in range(num_reqs):
+                if str(req_ids[seq]).startswith(self.domain_2_prefix):
+                    req_domain2.add(seq)
 
+        max_centroid_fill = 0    # domain 1 (primary)
+        max_centroid_fill_2 = 0  # domain 2 (secondary)
+        for seq in range(num_reqs):
+            if seq in req_domain2:
+                fl = min(self.centroid_len_2, max(0, int(prompt_lens_np[seq]) - self.sys_token_count))
+                if fl > max_centroid_fill_2:
+                    max_centroid_fill_2 = fl
+            else:
+                fl = min(self.centroid_len, max(0, int(prompt_lens_np[seq]) - self.sys_token_count))
+                if fl > max_centroid_fill:
+                    max_centroid_fill = fl
+
+        # ── RoPE-rotate primary centroid ──────────────────────────────────────
         k_rotated_max: torch.Tensor | None = None
         if max_centroid_fill > 0 and rotary_emb is not None:
-            #k_rotated_max = self.K[:, :max_centroid_fill, :].view(n_layers, max_centroid_fill, num_kv_heads, head_dim)
             cache_key = (max_centroid_fill, dev, tgt_dtype, n_q_heads, num_kv_heads, head_dim, id(rotary_emb))
             if self._rope_k_cache_key == cache_key and self._rope_k_cache_tensor is not None:
                 k_rotated_max = self._rope_k_cache_tensor
                 rope_cache_hit = True
             else:
-                # RoPE positions for centroid are sys_token_count .. sys_token_count + max_centroid_fill - 1
                 all_pos = self.sys_token_count + torch.arange(max_centroid_fill, device=dev, dtype=torch.long)
-                # self.K has shape [n_layers, N, kv_dim]. We take the slice we need.
                 K_slice = self.K[:, :max_centroid_fill, :].contiguous()
                 k_rotated_max = self._batch_rope(
                     rotary_emb, K_slice, all_pos, n_q_heads, num_kv_heads, head_dim, dev, tgt_dtype
@@ -294,6 +339,24 @@ class CentroidInjector:
                 self._rope_k_cache_tensor = k_rotated_max
         elif max_centroid_fill > 0:
             k_rotated_max = self.K[:, :max_centroid_fill, :].view(n_layers, max_centroid_fill, num_kv_heads, head_dim)
+
+        # ── RoPE-rotate secondary centroid (domain 2) ─────────────────────────
+        k_rotated_max_2: torch.Tensor | None = None
+        if max_centroid_fill_2 > 0 and self.K2 is not None:
+            if rotary_emb is not None:
+                cache_key_2 = (max_centroid_fill_2, dev, tgt_dtype, n_q_heads, num_kv_heads, head_dim, id(rotary_emb), 2)
+                if self._rope_k2_cache_key == cache_key_2 and self._rope_k2_cache_tensor is not None:
+                    k_rotated_max_2 = self._rope_k2_cache_tensor
+                else:
+                    all_pos_2 = self.sys_token_count + torch.arange(max_centroid_fill_2, device=dev, dtype=torch.long)
+                    K_slice_2 = self.K2[:, :max_centroid_fill_2, :].contiguous()
+                    k_rotated_max_2 = self._batch_rope(
+                        rotary_emb, K_slice_2, all_pos_2, n_q_heads, num_kv_heads, head_dim, dev, tgt_dtype
+                    )
+                    self._rope_k2_cache_key = cache_key_2
+                    self._rope_k2_cache_tensor = k_rotated_max_2
+            else:
+                k_rotated_max_2 = self.K2[:, :max_centroid_fill_2, :].view(n_layers, max_centroid_fill_2, num_kv_heads, head_dim)
 
         sys_rotated: torch.Tensor | None = None
         if not self.use_lmcache and self.sys_K is not None:
@@ -370,7 +433,7 @@ class CentroidInjector:
                     p1 = self.sys_token_count + max_centroid_fill - 1
                     logger.info(
                         "[CENTROID ROPE] inject#%s centroid RoPE positions used: %s..%s "
-                        "(inclusive; must match forward `positions` for those logical slots)",
+                        "(inclusive, must match forward `positions` for those logical slots)",
                         inv,
                         p0,
                         p1,
@@ -435,9 +498,9 @@ class CentroidInjector:
             if rope_dbg and inv < 24 and seq == 0:
                 cap = self.sys_token_count + self.centroid_len
                 logger.info(
-                    "[CENTROID ROPE] inject#%s seq0 prompt_len=%s req_id=%r — "
+                    "[CENTROID ROPE] inject#%s seq0 prompt_len=%s req_id=%r, "
                     "logical slots this run: sys[0..min(sys_stored,prompt)-1], "
-                    "centroid[sys_token_count .. min(sys+cntr,prompt)-1]; "
+                    "centroid[sys_token_count .. min(sys+cntr,prompt)-1], "
                     "full synthetic cap sys+centroid_len=%s (diff vs prompt=%s)",
                     inv,
                     prompt_len,
@@ -507,13 +570,19 @@ class CentroidInjector:
                         )
 
             # --- 2. Inject Domain Centroid KV ---
-            centroid_fill_len = min(self.centroid_len, max(0, prompt_len - self.sys_token_count))
-            if centroid_fill_len > 0 and k_rotated_max is None:
+            # Select primary or secondary centroid based on req_id prefix.
+            is_d2 = seq in req_domain2
+            V_src = self.V2 if is_d2 else self.V
+            cl    = self.centroid_len_2 if is_d2 else self.centroid_len
+            k_rot = k_rotated_max_2    if is_d2 else k_rotated_max
+
+            centroid_fill_len = min(cl, max(0, prompt_len - self.sys_token_count))
+            if centroid_fill_len > 0 and k_rot is None:
                 continue
 
             if centroid_fill_len > 0:
-                k_rotated_all = k_rotated_max[:, :centroid_fill_len, :, :]
-                v_all = self.V[:, :centroid_fill_len, :].view(n_layers, centroid_fill_len, num_kv_heads, head_dim)
+                k_rotated_all = k_rot[:, :centroid_fill_len, :, :]
+                v_all = V_src[:, :centroid_fill_len, :].view(n_layers, centroid_fill_len, num_kv_heads, head_dim)
                 if sink_rotated is not None:
                     alpha = min(max(self.sink_blend, 0.0), 1.0)
                     # Blend only the first injected token with a sink template.

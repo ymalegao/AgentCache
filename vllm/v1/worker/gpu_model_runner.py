@@ -865,7 +865,7 @@ class GPUModelRunner(
         self._mamba_copy_bufs: mamba_utils.MambaCopyBuffers | None = None
         self.layerwise_nvtx_hooks_registered = False
 
-        # Optional centroid KV warm-start (same .npy files as V2 runner; overridable via env).
+        # Optional centroid KV warm-start (same .npy files as V2 runner, overridable via env).
         self._centroid_injector = try_load_centroid_injector(self.device)
 
     def update_max_model_len(self, max_model_len: int) -> None:

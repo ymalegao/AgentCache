@@ -1,65 +1,112 @@
-# CLAUDE.md — 12-rule template
+# CLAUDE.md
 
-These rules apply to every task in this project unless explicitly overridden.
-Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Rule 1 — Think Before Coding
-State assumptions explicitly. If uncertain, ask rather than guess.
-Present multiple interpretations when ambiguity exists.
-Push back when a simpler approach exists.
-Stop when confused. Name what's unclear.
+## What this project does
 
-## Rule 2 — Simplicity First
-Minimum code that solves the problem. Nothing speculative.
-No features beyond what was asked. No abstractions for single-use code.
-Test: would a senior engineer say this is overcomplicated? If yes, simplify.
+AgentCache is a research project that eliminates the TTFT (Time-To-First-Token) prefill bottleneck for domain-specific LLM agents by replacing long system prompts with a small, gradient-trained KV-cache prefix injected directly into vLLM's KV cache. Demonstrated 2.8× TTFT speedup at 1000-token contexts on Llama-3.2-1B.
 
-## Rule 3 — Surgical Changes
-Touch only what you must. Clean up only your own mess.
-Don't "improve" adjacent code, comments, or formatting.
-Don't refactor what isn't broken. Match existing style.
+Three-phase pipeline:
+1. **Train** — PEFT prefix-tuning produces an adapter under `agentcache_compression/adapters/N{tokens}/`.
+2. **Transpose** — materialize the adapter into `centroid_K.npy` / `centroid_V.npy` of shape `[num_layers, N, token_dim]`.
+3. **Inject** — a patched vLLM seeds positions `0..N-1` of the KV cache from those `.npy` files; the scheduler's "gap mechanism" overrides `num_computed_tokens=N` so those slots are treated as already-prefilled and the N placeholder pad tokens in the prompt are never run through the model.
 
-## Rule 4 — Goal-Driven Execution
-Define success criteria. Loop until verified.
-Don't follow steps. Define success and iterate.
-Strong success criteria let you loop independently.
+`HANDOFF.md` is the long-form system design. `README.md` has the empirical results table.
 
-## Rule 5 — Use the model only for judgment calls
-Use me for: classification, drafting, summarization, extraction.
-Do NOT use me for: routing, retries, deterministic transforms.
-If code can answer, code answers.
+## Common commands
 
-## Rule 6 — Token budgets are not advisory
-Per-task: 4,000 tokens. Per-session: 30,000 tokens.
-If approaching budget, summarize and start fresh.
-Surface the breach. Do not silently overrun.
+```bash
+# One-time environment setup. Creates venv/, pins vllm==0.20.0, then copies
+# vllm/centroid_injector.py, vllm/centroid_integration.py and the patched
+# scheduler/model_runner files into site-packages/vllm/.
+./install.sh
+source venv/bin/activate
 
-## Rule 7 — Surface conflicts, don't average them
-If two patterns contradict, pick one (more recent / more tested).
-Explain why. Flag the other for cleanup.
-Don't blend conflicting patterns.
+# Download a base model (gated models need: hf login).
+./get_model.sh meta-llama/Llama-3.2-1B-Instruct
+# → models/Llama-3.2-1B-Instruct/
 
-## Rule 8 — Read before you write
-Before adding code, read exports, immediate callers, shared utilities.
-"Looks orthogonal" is dangerous. If unsure why code is structured a way, ask.
+# Full train → transpose → test pipeline for one N_virtual value.
+python run_training_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64
 
-## Rule 9 — Tests verify intent, not just behavior
-Tests must encode WHY behavior matters, not just WHAT it does.
-A test that can't fail when business logic changes is wrong.
+# Resume (adapter or centroids already on disk):
+python run_training_pipeline.py --model <path> --tokens 64 --skip-train
+python run_training_pipeline.py --model <path> --tokens 64 --skip-train --skip-transpose
 
-## Rule 10 — Checkpoint after every significant step
-Summarize what was done, what's verified, what's left.
-Don't continue from a state you can't describe back.
-If you lose track, stop and restate.
+# Run all three eval modes (cold_no_synthetic, warm_apc, synthetic_compression).
+python run_training_pipeline.py --model <path> --tokens 64 --test-modes all
 
-## Rule 11 — Match the codebase's conventions, even if you disagree
-Conformance > taste inside the codebase.
-If you genuinely think a convention is harmful, surface it. Don't fork silently.
+# Multi-turn benchmark — boots `vllm serve` per mode, scrapes Prometheus for APC hit rate.
+# Loops over N ∈ {64, 128, 256}; skips an N if its centroid .npy files are missing.
+python run_multi_turn_pipeline.py --model <path>
 
-## Rule 12 — Fail loud
-"Completed" is wrong if anything was skipped silently.
-"Tests pass" is wrong if any were skipped.
-Default to surfacing uncertainty, not hiding it
+# Combined Component 1 (LMCache disk offload) + Component 2 (centroid injection) benchmark.
+# Conditions: cold | lmcache | centroid | combined.
+python combined_benchmark.py
+```
+
+Phase scripts (the pipelines wrap these; invoke directly only when iterating on one step):
+- `agentcache_compression/train_prefix_compression.py`
+- `agentcache_compression/transpose_tensors.py`
+- `agentcache_compression/test_compression.py`
+- `agentcache_compression/multi_turn_benchmark.py`
+
+There is no unit-test suite. Output quality is verified through eval JSONL in `agentcache_compression/data/` and the per-task `must_include_any` keyword checks in `test_compression.py` (`coherent`, `ends_with_goodbye`, `task_check_pass`).
+
+## Architecture you need before editing
+
+### vLLM is patched in place by `install.sh`
+The local `vllm/` directory is the source of truth; `install.sh` copies its files into the active venv's `site-packages/vllm/`:
+
+| Source (in repo)                          | Destination (in venv)                       |
+|-------------------------------------------|---------------------------------------------|
+| `vllm/centroid_injector.py`               | `vllm/centroid_injector.py`                 |
+| `vllm/centroid_integration.py`            | `vllm/centroid_integration.py`              |
+| `vllm/v1/core/sched/scheduler.py`         | `vllm/v1/core/sched/scheduler.py`           |
+| `vllm/v1/worker/gpu_model_runner.py`      | `vllm/v1/worker/gpu_model_runner.py`        |
+| `vllm/v1/worker/gpu/model_runner.py`      | `vllm/v1/worker/gpu/model_runner.py`        |
+
+**Editing any file under `vllm/` has no effect until you re-run `./install.sh`** (or `cp` it into site-packages by hand). Forgetting this leads to confusing "my fix didn't change anything" sessions.
+
+### Runtime is env-var-gated
+The patched vLLM is dormant unless these are set at `vllm serve` startup:
+```
+VLLM_CENTROID_SCHEDULER=1
+VLLM_CENTROID_K_PATH=.../N128_2000_K.npy
+VLLM_CENTROID_V_PATH=.../N128_2000_V.npy
+VLLM_CENTROID_SYS_TOKENS=0          # 0 = pure compression mode (no system prompt in text)
+VLLM_CENTROID_LAYOUT=compression
+VLLM_CENTROID_PAD_TOKEN_ID=128001   # optional; pre-registers centroid blocks in APC for turn-1 hits
+```
+With `VLLM_CENTROID_SCHEDULER=0` (or unset) the patched vLLM behaves like stock vLLM — useful for cold baseline runs.
+
+### Prompt construction in compression mode
+The client builds `prompt_token_ids = [pad_id] * N + user_chat_token_ids` — **no system prompt in the text**. The system prompt's behavior is encoded in the injected KV. Putting the system prompt back in the text double-counts it and invalidates the comparison. See `build_compression_ids()` in both `test_compression.py` and `multi_turn_benchmark.py`.
+
+### Centroid file naming carries metadata
+`agentcache_compression/centroids/N{N}_{SYS_LEN}_K.npy` — `N` is virtual-token count, `SYS_LEN` is the system-prompt-length variant the adapter was trained on (`prompts/{200,500,1000,2000}_python_agent_system.txt`). `run_multi_turn_pipeline.py` specifically expects `N{N}_2000_K.npy`. Domain-tagged variants (`coding…`, `search…`) also live in this directory.
+
+A sidecar `sys_prefix_num_tokens.txt` written next to the `.npy` files is read by `CentroidInjector` when `VLLM_CENTROID_SYS_TOKENS` is unset.
+
+### GPT-OSS diverges from Llama/Qwen
+`centroid_integration.py` auto-detects `hf_config.model_type == "gpt_oss"` and disables centroid-side RoPE rotation for it (PEFT's `get_prompt()` already returns final cache-aligned K — rotating again broke coherence). GPT-OSS also required: looking up rotary-emb at `attn.rotary_emb` instead of `self_attn.rotary_emb`, respecting multiple KV cache groups (sliding-window + full-attention layers alternate), and a blocks-first KV tensor layout. When adding a new model family, expect to find similar architecture-specific quirks — see HANDOFF.md §5.4.1.
+
+### Projected vs flat adapter export
+`transpose_tensors.py` has two branches. We always train with `prefix_projection=True`, which goes through PEFT's `peft_model.get_prompt()` at export time. The non-projected flat-reshape branch is for an earlier experiment config and is no longer the trained path. Manual MLP reconstruction was tried, had subtle alignment bugs that produced silent garbage, and was abandoned — do not re-introduce it.
+
+### Label masking matters
+`train_prefix_compression.py` sets `labels = [-100] * prompt_len + input_ids[prompt_len:]`, so loss is computed only on assistant tokens. Without this the adapter optimizes to reproduce the prompt text instead of the response. `--system-retain-ratio 0.0` keeps the system prompt out of training inputs, forcing the virtual tokens to encode it.
+
+### Apple Silicon port lives elsewhere
+The Metal port is a separate codebase at `AgentCache-metal/vllm-metal/` (also cloned at `~/Documents/AgentCache-metal/vllm-metal`). Don't edit it from this repo. `agentcache_mac/` here holds Mac-side adapters/results only.
+
+## Conventions
+
+- Scripts are CLI-driven via argparse; defaults point under `agentcache_compression/`.
+- Training data: `agentcache_compression/data/*.jsonl`. System prompts: `agentcache_compression/prompts/{200,500,1000,2000}_*_system.txt`.
+- Results JSONL: `agentcache_compression/results/`. Plots: `plot_*.py` scripts in the same directory consume the JSONL.
+- `agentcache_compression/adapters/` is gitignored — checkpoints are expected to be regenerated, not committed.
+- `requirements.txt` pins `transformers==5.7.0` / `torch==2.11.0` / `vllm==0.20.0`. Don't bump without re-verifying the patched vLLM files still apply cleanly to the new version's internal layout.
 
 <!-- dgc-policy-v11 -->
 # Dual-Graph Context Policy
