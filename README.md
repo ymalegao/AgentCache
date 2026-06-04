@@ -230,9 +230,3 @@ All configs converge to roughly 65-80ms once the cache is warm. The cold config 
 ![Cold TTFT per turn](LMCacheCentroid/results/combined_ttft_cold_perturn.png)
 ![Warm TTFT per turn](LMCacheCentroid/results/combined_ttft_warm_perturn.png)
 ![Summary](LMCacheCentroid/results/combined_ttft_summary.png)
-
-### Key findings
-
-The biggest win for both LMCache and combined is on multi-turn coding requests where context accumulates. At turn 2, the cold config degrades to 9.35s while the cache-backed configs stay under 3.3s. Centroid alone helps at turn 1 (reduces initial prefill from 3.24s to 2.31s) but doesn't help with accumulated context the way LMCache does. The combined config performs best at turn 2 because LMCache handles the grown context and centroid handles the static system prompt prefix.
-
-Warm cache performance is essentially equal across all configs, which confirms the cold-start overhead is the real bottleneck this system is targeting.
