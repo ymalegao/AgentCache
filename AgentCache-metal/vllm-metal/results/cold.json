@@ -1,0 +1,187 @@
+{
+  "mode": "cold",
+  "model": "mlx-community/Qwen2.5-0.5B-Instruct-bf16",
+  "n": 64,
+  "injection_env": false,
+  "ttft": [
+    {
+      "context": "200_python_agent_system",
+      "prompt_tokens": 244,
+      "ttft_ms": 13.529020499845501
+    },
+    {
+      "context": "500_python_agent_system",
+      "prompt_tokens": 628,
+      "ttft_ms": 15.802020498085767
+    },
+    {
+      "context": "1000_python_agent_system",
+      "prompt_tokens": 1063,
+      "ttft_ms": 17.96464599465253
+    },
+    {
+      "context": "2000_python_agent_system",
+      "prompt_tokens": 2202,
+      "ttft_ms": 24.63777099910658
+    }
+  ],
+  "accuracy": {
+    "total": 25,
+    "task_pass": 17,
+    "task_pass_rate": 0.68,
+    "coherent": 25,
+    "coherence_rate": 1.0,
+    "per_record": [
+      {
+        "id": "ex_48",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 451
+      },
+      {
+        "id": "ex_156",
+        "task_pass": false,
+        "coherent": true,
+        "chars": 406
+      },
+      {
+        "id": "ex_105",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 432
+      },
+      {
+        "id": "ex_61",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 484
+      },
+      {
+        "id": "ex_70",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 474
+      },
+      {
+        "id": "ex_170",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 414
+      },
+      {
+        "id": "ex_90",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 455
+      },
+      {
+        "id": "ex_75",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 398
+      },
+      {
+        "id": "ex_132",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 392
+      },
+      {
+        "id": "ex_46",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 476
+      },
+      {
+        "id": "ex_123",
+        "task_pass": false,
+        "coherent": true,
+        "chars": 403
+      },
+      {
+        "id": "ex_78",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 459
+      },
+      {
+        "id": "ex_79",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 448
+      },
+      {
+        "id": "ex_49",
+        "task_pass": false,
+        "coherent": true,
+        "chars": 394
+      },
+      {
+        "id": "ex_152",
+        "task_pass": false,
+        "coherent": true,
+        "chars": 396
+      },
+      {
+        "id": "ex_35",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 499
+      },
+      {
+        "id": "ex_163",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 432
+      },
+      {
+        "id": "ex_84",
+        "task_pass": false,
+        "coherent": true,
+        "chars": 454
+      },
+      {
+        "id": "ex_98",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 425
+      },
+      {
+        "id": "ex_45",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 289
+      },
+      {
+        "id": "ex_151",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 453
+      },
+      {
+        "id": "ex_1",
+        "task_pass": false,
+        "coherent": true,
+        "chars": 478
+      },
+      {
+        "id": "ex_86",
+        "task_pass": false,
+        "coherent": true,
+        "chars": 464
+      },
+      {
+        "id": "ex_109",
+        "task_pass": true,
+        "coherent": true,
+        "chars": 513
+      },
+      {
+        "id": "ex_37",
+        "task_pass": false,
+        "coherent": true,
+        "chars": 448
+      }
+    ]
+  }
+}
