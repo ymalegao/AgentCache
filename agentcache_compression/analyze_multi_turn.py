@@ -176,7 +176,7 @@ def analyze(path: str, plot_out: Path | None = None):
         convs = len({r["conversation_id"] for recs in data[lbl].values() for r in recs})
         print(f"  {lbl:<22}  {n:>4} records  ({convs} conversations × {len(turns)} turns)")
 
-    # ── TTFT per turn ─────────────────────────────────────────────────────────
+    # TTFT per turn
     print_per_turn_table(
         data, labels, turns,
         "TTFT (seconds) — mean across conversations",
@@ -184,7 +184,7 @@ def analyze(path: str, plot_out: Path | None = None):
         fmt="{:7.4f}",
     )
 
-    # ── Speedup vs cold per turn ───────────────────────────────────────────────
+    # Speedup vs cold per turn
     if "Cold" in data:
         print_section("Speedup vs Cold — per turn")
         col_w = 14
@@ -207,9 +207,9 @@ def analyze(path: str, plot_out: Path | None = None):
                     row += f"  {'—':>{col_w}}"
             print(row)
 
-    # ── KV Cache Hit Rate per turn (Prometheus-style aggregate) ──────────────
-    # Prefer kv_cache_hits/queries (prometheus) when non-zero.
-    # Fall back to apc_cached_tokens/physical_prompt_tokens (per-request vLLM field).
+    # KV cache hit rate per turn
+    # Prefer kv_cache_hits/queries when non-zero.
+    # Fall back to apc_cached_tokens/physical_prompt_tokens.
     def kv_hit_rate_for_records(recs: list[dict]) -> float:
         if not recs:
             return float("nan")
@@ -234,7 +234,7 @@ def analyze(path: str, plot_out: Path | None = None):
             row += f"  {'{:7.1f}%'.format(val) if recs else '—':>{col_w}}"
         print(row)
 
-    # ── Aggregate KV cache hit rate across all turns ──────────────────────────
+    # Aggregate KV cache hit rate
     print_section("Aggregate KV Cache Hit Rate (%) — across all turns and conversations")
     header = f"  {'Mode':<22} {'Hit Rate':>10} {'Total Hits':>12} {'Total Queries':>15}"
     print(header)
@@ -253,7 +253,7 @@ def analyze(path: str, plot_out: Path | None = None):
         rate = (total_hits / total_queries * 100) if total_queries else 0.0
         print(f"  {lbl:<22} {rate:>9.1f}%  {total_hits:>12.0f}  {total_queries:>15.0f}")
 
-    # ── Physical prompt tokens per turn ───────────────────────────────────────
+    # Physical prompt tokens per turn
     print_per_turn_table(
         data, labels, turns,
         "Physical Prompt Tokens — mean across conversations",
@@ -261,7 +261,7 @@ def analyze(path: str, plot_out: Path | None = None):
         fmt="{:7.0f}",
     )
 
-    # ── Centroid savings (synthetic modes only) ────────────────────────────────
+    # Centroid tokens saved per turn
     synth_labels = [l for l in labels if l.startswith("Synthetic")]
     if synth_labels:
         print_section("Centroid Tokens Saved (synthetic modes only — constant = N)")
@@ -270,7 +270,7 @@ def analyze(path: str, plot_out: Path | None = None):
             n_val = all_recs[0]["N"] if all_recs else "?"
             print(f"  {lbl:<22}  {n_val} tokens saved per turn (gap injection)")
 
-    # ── Aggregate TTFT stats ───────────────────────────────────────────────────
+    # Aggregate TTFT stats
     print_section("Aggregate TTFT — across all turns and conversations")
     header = f"  {'Mode':<22} {'Mean':>8} {'Median':>8} {'Stdev':>8} {'Min':>8} {'Max':>8}"
     print(header)
@@ -286,7 +286,7 @@ def analyze(path: str, plot_out: Path | None = None):
             f"{max(vals):>8.4f}"
         )
 
-    # ── Quality ───────────────────────────────────────────────────────────────
+    # Quality
     print_section("Response Quality (records with 'response' field)")
     has_response = {
         lbl: [r for recs in data[lbl].values() for r in recs if "response" in r]
@@ -318,7 +318,7 @@ def analyze(path: str, plot_out: Path | None = None):
                 f"{code_pct:>10.1f}% {trunc_pct:>11.1f}% {goodbye_pct:>9.1f}%"
             )
 
-        # ── ROUGE-L vs Cold baseline ───────────────────────────────────────────
+        # ROUGE-L vs cold baseline
         if "Cold" not in data or not has_response.get("Cold"):
             print("\n  (Skipping ROUGE-L: no Cold baseline responses found)")
         elif not _ROUGE_AVAILABLE:

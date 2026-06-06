@@ -5,9 +5,9 @@ Usage:
     python run_pipeline.py --model <path_or_hf_id> --tokens <N>
 
 Steps:
-    1. Train   — prefix adapter via PEFT
-    2. Transpose — export adapter weights to .npy centroid tensors
-    3. Test    — evaluate synthetic KV injection via vLLM
+    1. Train     - prefix adapter via PEFT
+    2. Transpose - export adapter weights to .npy centroid tensors
+    3. Test      - evaluate synthetic KV injection via vLLM
 
 Prerequisites:
     source venv/bin/activate   (install.sh must have been run first)

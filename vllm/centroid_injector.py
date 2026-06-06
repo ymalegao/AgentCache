@@ -77,8 +77,7 @@ class CentroidInjector:
             self.K = torch.tensor(K[:, :self.centroid_len, :], dtype=torch.float16, device=device)
             self.V = torch.tensor(V[:, :self.centroid_len, :], dtype=torch.float16, device=device)
 
-        # ── Optional secondary (domain-2) centroid ─────────────────────────────
-        # Loaded when VLLM_CENTROID_K_PATH_2 is set (or passed directly).
+        # Optional secondary centroid loaded when VLLM_CENTROID_K_PATH_2 is set.
         # Requests whose req_id starts with VLLM_CENTROID_DOMAIN_2_PREFIX get K2/V2.
         k2_path = centroid_K_path_2 or os.environ.get("VLLM_CENTROID_K_PATH_2")
         v2_path = centroid_V_path_2 or os.environ.get("VLLM_CENTROID_V_PATH_2")
@@ -302,8 +301,8 @@ class CentroidInjector:
                 f"shape={tuple(kv_tensor.shape)} layer_block_size={layer_block_size}"
             )
 
-        # ── Classify each request into primary (domain 1) or secondary (domain 2) ──
-        # Domain 2 requests have req_id starting with self.domain_2_prefix (e.g. "search:").
+        # Classify each request as primary or secondary domain.
+        # Domain 2 requests have req_id starting with self.domain_2_prefix.
         req_domain2: set[int] = set()
         if self.K2 is not None and self.domain_2_prefix and req_ids is not None:
             for seq in range(num_reqs):
@@ -322,7 +321,7 @@ class CentroidInjector:
                 if fl > max_centroid_fill:
                     max_centroid_fill = fl
 
-        # ── RoPE-rotate primary centroid ──────────────────────────────────────
+        # RoPE-rotate primary centroid
         k_rotated_max: torch.Tensor | None = None
         if max_centroid_fill > 0 and rotary_emb is not None:
             cache_key = (max_centroid_fill, dev, tgt_dtype, n_q_heads, num_kv_heads, head_dim, id(rotary_emb))
@@ -340,7 +339,7 @@ class CentroidInjector:
         elif max_centroid_fill > 0:
             k_rotated_max = self.K[:, :max_centroid_fill, :].view(n_layers, max_centroid_fill, num_kv_heads, head_dim)
 
-        # ── RoPE-rotate secondary centroid (domain 2) ─────────────────────────
+        # RoPE-rotate secondary centroid
         k_rotated_max_2: torch.Tensor | None = None
         if max_centroid_fill_2 > 0 and self.K2 is not None:
             if rotary_emb is not None:

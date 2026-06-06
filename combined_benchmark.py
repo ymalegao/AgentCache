@@ -1,13 +1,13 @@
 """
-AgentCache Combined Benchmark — Component 1 + Component 2
+AgentCache Combined Benchmark - Component 1 + Component 2
 ==========================================================
 Mirrors CSE232BCombined.ipynb exactly, adapted for local runs.
 
 Conditions:
-  cold      — no LMCache, no centroid (baseline)
-  lmcache   — LMCache disk offload only (Component 1)
-  centroid  — centroid KV injection only (Component 2)
-  combined  — both: centroid injects 0..31, LMCache warms remaining prefix
+  cold      - no LMCache, no centroid (baseline)
+  lmcache   - LMCache disk offload only (Component 1)
+  centroid  - centroid KV injection only (Component 2)
+  combined  - both: centroid injects 0..31, LMCache warms remaining prefix
 
 Prerequisites (local):
   1. Centroid patches installed in active vLLM env (see HANDOFF.md):
@@ -36,7 +36,7 @@ from typing import List
 from openai import OpenAI
 from tqdm import tqdm
 
-# ── Paths ──────────────────────────────────────────────────────────────────────
+# Paths
 REPO_ROOT   = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_MODEL = os.environ.get(
     "AGENTCACHE_MODEL",
@@ -63,12 +63,12 @@ LMCACHE_YAML = "/tmp/agentcache_lmcache.yaml"
 RESULTS_DIR = os.path.join(REPO_ROOT, "results_combined")
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-# ── Centroid length cap ────────────────────────────────────────────────────────
+# Centroid length cap
 # centroid_K.npy has 64 virtual tokens. Reduce if output quality is low.
 # Must be in range [1, 64].
 CENTROID_LEN = 64  # tokens to inject (tune: try 16, 32, 48, 64)
 
-# ── Agent system prompts — must match notebook exactly ─────────────────────────
+# Agent system prompts
 CODING_SYSTEM = (
     "\n"
     "    You are a helpful Python coding assistant. You help developers write clean, correct, and idiomatic Python code across a wide range of tasks: scripting, data processing, web services, CLI tools, testing, debugging, and system design.\n"
@@ -286,7 +286,7 @@ SEARCH_SYSTEM = (
 
 AGENT_SYSTEMS = {"coding": CODING_SYSTEM, "search": SEARCH_SYSTEM}
 
-# ── Queries ────────────────────────────────────────────────────────────────────
+# Queries
 CODING_QUERIES = [
     "Implement a thread-safe LRU cache in Python with O(1) get and put.",
     "Write a Python context manager that retries a block up to N times on exception.",
@@ -336,7 +336,7 @@ def has_lmcache() -> bool:
     return importlib.util.find_spec("lmcache") is not None
 
 
-# ── LMCache config ─────────────────────────────────────────────────────────────
+# LMCache config
 def write_lmcache_config():
     with open(LMCACHE_YAML, "w") as f:
         # chunk_size MUST be <= vLLM block_size (16) to avoid combined-mode crash.
@@ -344,7 +344,7 @@ def write_lmcache_config():
     print(f"LMCache config written  |  CENTROID_LEN={CENTROID_LEN}")
 
 
-# ── vLLM server lifecycle ──────────────────────────────────────────────────────
+# vLLM server lifecycle
 def _env(use_lmcache: bool, use_centroid: bool) -> dict:
     env = os.environ.copy()
     env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
@@ -433,7 +433,7 @@ def kill_server(proc):
 SERVER_PROC = None
 
 
-# ── Benchmark helpers ──────────────────────────────────────────────────────────
+# Benchmark helpers
 @dataclass
 class RequestResult:
     agent_type: str
@@ -568,7 +568,7 @@ def run_condition(label: str, use_lmcache: bool, use_centroid: bool, num_rounds:
     return result
 
 
-# ── Plot + summary ─────────────────────────────────────────────────────────────
+# Plot and summary
 def plot_results(all_results: dict):
     try:
         import matplotlib.pyplot as plt
@@ -605,7 +605,7 @@ def plot_results(all_results: dict):
 
     fig, axes = plt.subplots(1, 3, figsize=(20, 5))
 
-    # ── Left: grouped bar — Cold vs Warm ──────────────────────────────────────
+    # Left: grouped bar, cold vs warm
     ax = axes[0]
     for i, label in enumerate(labels):
         offset = (i - len(labels) / 2 + 0.5) * width
@@ -621,7 +621,7 @@ def plot_results(all_results: dict):
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
 
-    # ── Middle: speedup over cold baseline ────────────────────────────────────
+    # Middle: speedup over cold baseline
     ax2 = axes[1]
     cold_vals = means.get("cold", [1, 1])
     for i, label in enumerate(labels):
@@ -636,7 +636,7 @@ def plot_results(all_results: dict):
     ax2.legend()
     ax2.grid(alpha=0.3)
 
-    # ── Right: per-turn TTFT in warm round ────────────────────────────────────
+    # Right: per-turn TTFT in warm round
     ax3 = axes[2]
     for i, label in enumerate(labels):
         if all_turns and turn_means[label]:
@@ -656,7 +656,7 @@ def plot_results(all_results: dict):
     print(f"\nPlot saved: {path}")
     plt.show()
 
-    # ── Summary table ─────────────────────────────────────────────────────────
+    # Summary table
     print(f"\n{'='*58}")
     print("AGENTCACHE COMBINED RESULTS")
     print(f"{'='*58}")
@@ -671,7 +671,7 @@ def plot_results(all_results: dict):
     print("      Combined: best cold (centroid) + good warm (LMCache) — each round is optimised")
 
 
-# ── Entry point ────────────────────────────────────────────────────────────────
+# Entry point
 def main():
     global MODEL, PORT, CENTROID_K, CENTROID_V, MAX_MODEL_LEN, GPU_MEMORY_UTILIZATION
 

@@ -72,10 +72,10 @@ def mean_ttft_by_turn(records, mode_filter=None):
     return {t: statistics.mean(v) for t, v in sorted(groups.items())}
 
 
-# ── Load data ──────────────────────────────────────────────────────────────────
+# Load data
 all_records = {name: load_records(path) for name, path in FILES.items()}
 
-# ── Panel 1: Grouped bar chart — mean TTFT per config per model ─────────────
+# Panel 1: grouped bar chart, mean TTFT per config per model
 fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 fig.suptitle("TTFT Benchmark: AgentCache KV Compression", fontsize=14, fontweight="bold", y=1.02)
 
