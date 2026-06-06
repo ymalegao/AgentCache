@@ -5,11 +5,11 @@ Usage:
     python run_multi_turn_pipeline.py --model <path> [options]
 
 Runs all benchmark modes as subprocesses, appending to a single results JSONL:
-    cold            — baseline, no APC, no centroid
-    warm_apc        — APC enabled, no centroid
-    synthetic_N64   — centroid injection N=64 + APC
-    synthetic_N128  — centroid injection N=128 + APC
-    synthetic_N256  — skipped if centroid files are missing
+    cold            - baseline, no APC, no centroid
+    warm_apc        - APC enabled, no centroid
+    synthetic_N64   - centroid injection N=64 + APC
+    synthetic_N128  - centroid injection N=128 + APC
+    synthetic_N256  - skipped if centroid files are missing
 
 Prerequisites:
     source vllm-env/bin/activate
@@ -94,8 +94,8 @@ def main():
     ] + common, f"{step} warm_apc")
 
     for N in SYNTHETIC_TOKENS:
-        k_path = centroid_dir / f"N{N}nogb_K.npy"
-        v_path = centroid_dir / f"N{N}nogb_V.npy"
+        k_path = centroid_dir / f"N{N}_2000_K.npy"
+        v_path = centroid_dir / f"N{N}_2000_V.npy"
         if not k_path.exists() or not v_path.exists():
             print(f"\nWARNING: Centroid files for N={N} not found ({k_path}). Skipping synthetic_N{N}.")
             continue

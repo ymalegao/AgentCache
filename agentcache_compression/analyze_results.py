@@ -65,7 +65,7 @@ def analyze(path: str):
     for m in modes:
         print(f"  {MODE_LABELS.get(m, m):30s} : {len(data[m])} records")
 
-    # ── TTFT ──────────────────────────────────────────────────────────────────
+    # TTFT
     print_section("Time-to-First-Token (TTFT) — seconds")
     ttft: dict[str, dict] = {}
     for m in modes:
@@ -90,7 +90,7 @@ def analyze(path: str):
             label = MODE_LABELS.get(m, m)
             print(f"    {label:<30} {su}")
 
-    # ── TOKEN COUNTS ──────────────────────────────────────────────────────────
+    # Token counts
     print_section("Physical Prompt Tokens")
     header = f"{'Mode':<30} {'Mean':>8} {'Min':>8} {'Max':>8}"
     print(header)
@@ -119,7 +119,7 @@ def analyze(path: str):
             label = MODE_LABELS.get(m, m)
             print(f"  {label:<30} mean={statistics.mean(vals):.1f}  min={min(vals)}  max={max(vals)}")
 
-    # ── QUALITY CHECKS ────────────────────────────────────────────────────────
+    # Quality checks
     print_section("Quality Checks (% pass)")
     check_keys = sorted({k for m in modes for r in data[m] for k in r["checks"]})
     header = f"{'Mode':<30}" + "".join(f" {k:>20}" for k in check_keys)
@@ -132,7 +132,7 @@ def analyze(path: str):
             row += f" {pct_pass(data[m], k):>19.1f}%"
         print(row)
 
-    # ── PER-EXAMPLE TTFT COMPARISON ───────────────────────────────────────────
+    # Per-example TTFT comparison
     if len(modes) >= 2 and all(m in data for m in [baseline_mode, "synthetic_compression"]):
         print_section("Per-example TTFT: Cold vs Synthetic Compression")
         cold_by_id = {r["id"]: r["ttft_mean_s"] for r in data[baseline_mode]}

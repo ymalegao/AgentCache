@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AgentCache Live Demo</title>
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>AgentCache Live Demo</h1>
+        <p id="subtitle">Baseline full prompt vs centroid-injected prefix</p>
+      </div>
+      <div class="status-strip">
+        <div class="status-pill" id="baseline-status">Baseline: starting</div>
+        <div class="status-pill" id="centroid-status">Centroid: starting</div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel controls">
+        <div class="section-title">Session</div>
+        <div class="control-grid">
+          <label>
+            Conversation
+            <select id="conversation"></select>
+          </label>
+          <label>
+            Max tokens
+            <input id="max-tokens" type="number" min="1" max="1024" value="192">
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="reset-btn">Reset Conversation</button>
+          <button id="prepare-btn">Prepare System Prefix</button>
+          <button id="run-btn" class="primary">Run Current Turn</button>
+          <button id="advance-btn">Continue to Next Turn</button>
+        </div>
+        <div class="turn-box">
+          <div class="turn-meta" id="turn-meta">Turn 1</div>
+          <div class="turn-prompt" id="turn-prompt">Loading conversation...</div>
+          <div class="turn-preview" id="turn-next"></div>
+        </div>
+      </section>
+
+      <section class="panel single">
+        <div class="section-title">Single Prompt Fallback</div>
+        <textarea id="single-prompt" rows="3">Write a Python function that reverses a string.</textarea>
+        <div class="button-row">
+          <button id="run-single-btn">Run Single Prompt</button>
+        </div>
+      </section>
+
+      <section class="metrics">
+        <div class="metric-card">
+          <span class="label">TTFT Speedup</span>
+          <strong id="speedup-ratio">--</strong>
+        </div>
+        <div class="metric-card">
+          <span class="label">TTFT Saved</span>
+          <strong id="speedup-saved">--</strong>
+        </div>
+        <div class="metric-card">
+          <span class="label">Prompt Tokens Saved</span>
+          <strong id="tokens-saved">--</strong>
+        </div>
+      </section>
+
+      <section class="comparison">
+        <article class="panel result-panel" id="baseline-panel">
+          <div class="result-header">
+            <div>
+              <h2>Baseline</h2>
+              <p>Full system prompt physically sent</p>
+            </div>
+            <span class="mode-badge baseline">system prompt sent</span>
+          </div>
+          <div class="result-grid">
+            <div><span>Warmed TTFT</span><strong id="baseline-ttft">--</strong></div>
+            <div><span>Full gen</span><strong id="baseline-total">--</strong></div>
+            <div><span>Prompt tokens</span><strong id="baseline-tokens">--</strong></div>
+            <div><span>History turns</span><strong id="baseline-history">--</strong></div>
+          </div>
+          <pre id="baseline-output"></pre>
+        </article>
+
+        <article class="panel result-panel" id="centroid-panel">
+          <div class="result-header">
+            <div>
+              <h2>Centroid</h2>
+              <p>Learned KV prefix injected into cache</p>
+            </div>
+            <span class="mode-badge centroid">centroid injected</span>
+          </div>
+          <div class="result-grid">
+            <div><span>Warmed TTFT</span><strong id="centroid-ttft">--</strong></div>
+            <div><span>Full gen</span><strong id="centroid-total">--</strong></div>
+            <div><span>Prompt tokens</span><strong id="centroid-tokens">--</strong></div>
+            <div><span>History turns</span><strong id="centroid-history">--</strong></div>
+          </div>
+          <pre id="centroid-output"></pre>
+        </article>
+      </section>
+
+      <section class="panel timeline">
+        <div class="section-title">Per-Turn Timeline</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Turn</th>
+              <th>Baseline warmed TTFT</th>
+              <th>Centroid warmed TTFT</th>
+              <th>Baseline tokens</th>
+              <th>Centroid tokens</th>
+              <th>Speedup</th>
+            </tr>
+          </thead>
+          <tbody id="timeline-body">
+            <tr><td colspan="6">No turns run yet.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="section-title">Event Log</div>
+        <ol id="event-log"></ol>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

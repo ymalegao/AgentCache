@@ -1,49 +1,39 @@
+# AgentCache: Synthetic KV Caching for Domain-Specific Agents
 
-# Synthetic KV Caching for Domain-Specific Agents
-
-## 1. Project Goal
-
-The primary objective is to **eliminate the Time-To-First-Token (TTFT) prefill bottleneck** in domain-specific agentic workflows by exploiting **input temporal redundancy**.
-
-Rather than re-processing massive system prompts and repository contexts on every turn ($O(N^2)$ complexity), we inject a **mathematically sound, highly compressed representation** of the agent's persona directly into the transformer's memory (the KV Cache). This allows the engine to skip instructional prefill and begin generation nearly instantaneously.
-
-### The Technical Pivot
-
-We have moved away from **Unsupervised Hidden State Averaging**, which failed due to **Semantic Superposition** (vectors mapping to invalid regions of the latent manifold). We now utilize **Gradient-Optimized Continuous Prompts** (Prefix-Tuning) to learn the optimal domain prior via backpropagation.
+Eliminates the TTFT prefill bottleneck for domain-specific LLM agents by replacing long system prompts with a small, gradient-trained KV-cache prefix injected directly into vLLM at inference time.
 
 ---
 
-## 2. Quick Start
+## Quick Start
 
 ```bash
-# 1. Install dependencies and patch vLLM
+# Install dependencies and patch vLLM
 ./install.sh
 source venv/bin/activate
 
-# 2. Download the base model (gated models require: hf login)
+# Download a base model (gated models require: hf login)
 ./get_model.sh meta-llama/Llama-3.2-1B-Instruct
-# model saved to models/Llama-3.2-1B-Instruct/
 
-# 3. Run the full pipeline: train → export centroids → test injection
-python run_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64
-# Results written to agentcache_compression/results/N64_comparison.jsonl
+# Run the full pipeline: train adapter, export centroids, evaluate injection
+python run_training_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64
 ```
 
-### Resume from a checkpoint
+**Resume from checkpoint:**
 ```bash
-# Skip training (adapter already trained):
-python run_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64 --skip-train
+# Adapter already trained
+python run_training_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64 --skip-train
 
-# Skip training + transpose (centroids already exported):
-python run_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64 --skip-train --skip-transpose
+# Centroids already exported
+python run_training_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64 --skip-train --skip-transpose
 
-# Run all three test modes for comparison:
-python run_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64 --test-modes all
+# Run all test modes
+python run_training_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64 --test-modes all
 ```
 
-### Output paths (relative to repo root)
+**Output paths:**
+
 | Artifact | Path |
-|----------|------|
+|---|---|
 | Trained adapter | `agentcache_compression/adapters/N{tokens}/` |
 | Centroid tensors | `agentcache_compression/centroids/N{tokens}_K.npy`, `..._V.npy` |
 | Eval results | `agentcache_compression/results/N{tokens}_comparison.jsonl` |
@@ -51,233 +41,108 @@ python run_pipeline.py --model models/Llama-3.2-1B-Instruct --tokens 64 --test-m
 
 ---
 
-## 3. Architecture Overview
+## How It Works
 
-### Phase A: Offline Learning (PEFT Training)
+**Phase 1: Train.** PEFT prefix-tuning produces a small adapter trained on domain-specific tasks (e.g. Python coding, general search). The adapter learns virtual tokens that encode the agent's system prompt behavior via backpropagation.
 
-We use the Hugging Face `PEFT` library to train a series of "virtual tokens" that capture the statistical and behavioral regularities of the target domain.
+**Phase 2: Export.** The adapter weights are materialized into layer-wise `.npy` tensors of shape `[num_layers, N_virtual, kv_dim]`, one file for K and one for V.
 
-* **Backbone:** Frozen weights (e.g., Llama 3.1 8B, Qwen2.5-Coder 7B).
-* **Method:** `PrefixTuningConfig` with 64–512 virtual tokens.
-* **Data:** Training on **Perturbed Persona Tasks** (noisy, conversational inputs) to ensure the learned prefix is resilient to real-world user queries.
-* **Loss:** Minimizing next-token prediction loss, which forces the virtual tokens to align with the model’s internal attention distribution.
+**Phase 3: Inject.** A patched vLLM reads the `.npy` files at startup and writes their values directly into the GPU KV cache before each forward pass. The scheduler is told positions `0..N-1` are already computed, so they are never prefilled. The model processes only the user query tokens.
 
-### Phase B: Extraction & Materialization
+The patch touches four vLLM files:
 
-The learned weights in the `adapter_model.safetensors` must be materialized into raw tensors for the inference engine.
+| Source (repo) | Role |
+|---|---|
+| `vllm/centroid_injector.py` | Writes centroid tensors into KV cache blocks |
+| `vllm/centroid_integration.py` | Wires injector into model runner and scheduler |
+| `vllm/v1/worker/gpu_model_runner.py` | Calls injector on each forward pass |
+| `vllm/v1/core/sched/scheduler.py` | Reports centroid slots as already computed |
 
-* **Reshaping:** Flattened PEFT weights are reshaped to the layer-wise layout: `[num_layers, num_virtual_tokens, token_dim]`.
-* **GQA Alignment:** Tensors are sliced to match the specific Key-Value head count (Grouped Query Attention) of the target model.
-* **Output:** Binary `.npy` files (`centroid_K.npy`, `centroid_V.npy`).
+Editing any of these files requires re-running `./install.sh` to copy them into site-packages.
 
-### Phase C: vLLM Delivery (Centroid Injection)
+**Runtime is controlled by env vars:**
 
-We have modified the vLLM core to support a custom `CentroidInjector` and scheduler-level prefill bypass.
+```
+VLLM_CENTROID_SCHEDULER=1
+VLLM_CENTROID_K_PATH=.../centroid_K.npy
+VLLM_CENTROID_V_PATH=.../centroid_V.npy
+VLLM_CENTROID_SYS_TOKENS=0    # 0 = pure compression mode
+```
 
-* **CentroidInjector:** Seeds the first physical blocks (Block 0) of the KV cache with the learned tensors before the forward pass.
-* **Attention Sink Preservation:** The system is configured to preserve the native `<BOS>` token at Position 0 (the sink) while beginning the synthetic prefix at Position 1 to prevent coordinate system collapse.
-* **RoPE Continuity:** Dynamic positional offsets ensure that the Rotary Positional Embeddings for the synthetic sequence and the subsequent user query remain continuous.
-* **Scheduler Path B:** The scheduler overrides `num_computed_tokens` with `total_synthetic_len`, tricking the engine into treating the instructional context as "already prefilled."
-
----
-
-## 4. Deployment Configuration
-
-### Environment Variables
-
-* `VLLM_CENTROID_SCHEDULER=1`: Enables the scheduler bypass.
-* `VLLM_CENTROID_K_PATH` / `VLLM_CENTROID_V_PATH`: Paths to the learned tensors.
-* `VLLM_CENTROID_SYS_TOKENS=1`: Reserves Position 0 for the model's native attention sink.
-
-### Key Metrics for Validation
-
-1. **TTFT Speedup:** Target > 80% reduction for prompts > 1k tokens.
-2. **Perplexity Stability:** Ensure the injected prefix does not increase perplexity compared to the raw text baseline.
-3. **Accuracy (SWE-Bench/MMLU):** Verify that the compressed persona maintains the reasoning quality of the full-text instructions.
+With `VLLM_CENTROID_SCHEDULER=0` or unset, the patched vLLM behaves identically to stock vLLM.
 
 ---
 
-## 5. Current Status
+## Results
 
-* [x] **vLLM Infrastructure:** `CentroidInjector` and Scheduler Hooks implemented.
-* [x] **Mathematical Pivot:** Defined the requirement for gradient-based tuning to solve OOD noise.
-* [x] **Step 1:** Run the `PEFT` Prefix-Tuning loop on perturbed persona datasets.
-* [x] **Step 2:** Materialize tensors using the `safetensors` extraction script.
-* [x] **Step 3:** Perform A/B benchmarking comparing TTFT and generation quality between Cold Start, APC, and Centroid Injection.
+### Single-agent benchmark (Llama-3.2-1B-Instruct)
 
----
+TTFT at different context lengths, N=128 virtual tokens:
 
-## 6. Empirical Results (Llama-3.2-1B-Instruct)
-
-### TTFT by prompt length (N=128 virtual tokens)
-
-| Context length | Mode | Physical tokens | TTFT | Speedup vs cold |
+| Context length | Mode | Physical tokens | TTFT | Speedup |
 |---|---|---|---|---|
-| ~200 tokens | cold_no_synthetic | ~276 | 20.8ms | — |
-| ~200 tokens | synthetic_compression | ~184 | 18.7ms | 1.1x |
-| ~1000 tokens | cold_no_synthetic | ~1092 | 47.8ms | — |
-| ~1000 tokens | synthetic_compression | ~184 | 17.0ms | **2.8x** |
+| ~200 tokens | cold | ~276 | 20.8ms | baseline |
+| ~200 tokens | centroid | ~184 | 18.7ms | 1.1x |
+| ~1000 tokens | cold | ~1092 | 47.8ms | baseline |
+| ~1000 tokens | centroid | ~184 | 17.0ms | **2.8x** |
 
-**Key finding:** TTFT delta between cold and synthetic is negligible (~2ms) at 200-token contexts because fixed overhead dominates. At 1000 tokens, prefill becomes the bottleneck and the speedup reaches 2.8x. The synthetic TTFT stays flat (~17ms) regardless of original context length because physical tokens sent is always N_virtual + user_query.
+At short contexts, fixed GPU overhead dominates and speedup is small. At 1000 tokens, prefill is the bottleneck and centroid injection reduces TTFT by 2.8x. Synthetic TTFT stays roughly flat regardless of original context length because the number of physically prefilled tokens is always N_virtual + user query length.
 
-### N_virtual sweep (200-token context)
+N ablation at 200-token context:
 
-| N_virtual | Physical tokens | TTFT | task_pass |
+| N_virtual | Physical tokens | TTFT | Task pass rate |
 |---|---|---|---|
 | 64 | ~120 | ~17.8ms | 80% |
 | 128 | ~184 | ~18.7ms | 84% |
 
-Quality is similar at N=64 and N=128; larger N gives no quality gain at this context length. N_virtual should **not** scale with context length — the speedup comes from keeping N_virtual small and fixed.
+Quality is similar at N=64 and N=128. The speedup is not sensitive to N above a minimum threshold.
 
-### Behavioral instruction encoding (GOODBYE signal)
+---
 
-The system prompt ends with `Always end the final response with the exact token: GOODBYE`. Observed compliance rates:
+### Multi-agent benchmark (Qwen2.5-1.5B-Instruct, NVIDIA T4)
 
-| Mode | GOODBYE rate |
+Notebook: `LMCacheCentroidN256.ipynb`
+
+Tests four conditions over 10 coding queries and 10 search queries, two rounds each (cold round then warm round). Each request is tagged by agent type and the injector selects the matching centroid (codingN256 or searchN256) per-request with no server restart.
+
+| Condition | Description |
 |---|---|
-| cold_no_synthetic | 0% (all experiments) |
-| warm_apc | 0% |
-| synthetic_compression N=64 | 12% |
-| synthetic_compression N=128 | 24% |
+| cold | No LMCache, no centroid. Full prefill every request. |
+| lmcache | CPU KV offload, LRU, chunk size 16. Warm requests reuse from round 1. |
+| centroid | codingN256 or searchN256 injected at positions 0-255 every request. |
+| combined | Centroid injection plus LMCache both active. |
 
-Cold and warm_apc both fail despite having the full system prompt in context. The virtual tokens encode the GOODBYE behavioral instruction more densely than the raw text does — on a 1B model, the instruction is diluted in a 1000-token context but occupies a large fraction of a 128-token compressed representation. This is evidence that the adapter captures behavioral signals, not just semantic content.
+**Cold-round mean TTFT (round 1, no prior session):**
 
-**Note:** This effect is expected to diminish on a 7B+ model, where instruction following in long contexts is more reliable. Cold would produce GOODBYE more consistently, narrowing the delta between cold and synthetic. The TTFT speedup remains the primary metric regardless of model size.
+| Condition | Mean TTFT | Speedup vs cold |
+|---|---|---|
+| cold | 1078ms | baseline |
+| lmcache | 568ms | 1.90x |
+| centroid | 547ms | 1.97x |
+| combined | 494ms | **2.18x** |
 
----
+LMCache has no stored KV on the first session so its cold-round gain comes from vLLM's native in-session prefix caching, which runs in all conditions. The centroid provides a guaranteed injection from turn 1 regardless of session state, which is why it outperforms LMCache in cold conditions. The combined system achieves the best result because the centroid seeds the first 256 positions and vLLM prefix caching can match a longer anchor for the rest of the system prompt.
 
-## 7. Experiments to Run Next
+**Per-turn breakdown (cold round, averaged over both agent types):**
 
-### Priority 1 — Token count × context length grid
+| Turn | cold | lmcache | centroid | combined |
+|---|---|---|---|---|
+| 1 | 2585ms | 2200ms | 2102ms | 2097ms |
+| 2 | 4362ms | 1872ms | 1762ms | 1214ms |
+| 3+ | ~76-230ms | ~79-241ms | ~75-244ms | ~85-245ms |
 
-Run synthetic_compression and cold_no_synthetic (no APC needed) across this grid on Llama-3.2-1B-Instruct:
+The largest gains appear at turns 1-2, before vLLM's in-session prefix caching has warmed up. The combined condition cuts turn-2 TTFT by 3.6x compared to cold. The cold baseline also spikes again at turn 9 due to an in-session APC miss on a specific coding query. Centroid and combined conditions do not show this spike because the injected first-256-token KV provides a stable matching anchor.
 
-```
-N_virtual    ∈ {32, 64, 128, 256}
-context_len  ∈ {200, 500, 1000, 2000}
-```
+**Warm-round mean TTFT (round 2, all session state populated):**
 
-Goal: find the quality floor (minimum N_virtual where task_pass stays acceptable) and confirm it does not depend on context length. Beyond N=256 the TTFT speedup drops below 2x and is not worth testing.
+All four conditions converge to 74-75ms with under 15ms of variation across all turns.
 
-Expected: task_pass degrades as N_virtual shrinks; the speedup curve follows roughly `cold_ttft / synth_ttft ≈ context_len / (N_virtual + overhead)`.
+**Model quality (ROUGE-L vs cold baseline, temperature=0):**
 
-### Priority 2 — Repeat Priority 1 on a 7B model
+All three non-cold conditions score 1.0 ROUGE-L against the cold baseline across all query types, cache rounds, and agent types. Centroid injection introduces no quality degradation under greedy decoding.
 
-Same grid on Qwen-2.5-7B-Instruct or Llama-3.1-8B-Instruct. Two things change at 7B:
-- Prefill cost per token is higher → absolute TTFT savings are larger
-- Instruction following in long contexts is stronger → cold GOODBYE compliance improves, narrowing the behavioral encoding delta
+**Charts:**
 
-The quality floor (minimum viable N_virtual) may also shift because 7B has more representational capacity per virtual token.
-
-
-## Next Steps
---
-What Changes When You Scale Up
-
-1. GQA Head Counts (High Impact — Must Fix Before Pipeline)
-
-Qwen-1.5B has a simple attention layout: num_kv_heads == num_attention_heads. Most production-grade models use Grouped Query Attention (GQA), where num_kv_heads is smaller (e.g., 8 KV heads vs. 32 Q heads on Llama-3-8B).
-
-Your transpose_tensors.py exports tensors at token_dim resolution but never slices to num_kv_heads. When you inject a tensor shaped [num_layers, N, token_dim] into a GQA model, the injector is broadcasting a full-head tensor into a KV head slot that's only head_dim * num_kv_heads wide. This will silently produce garbage — it won't crash, it'll just inject nonsense.
-
-Fix required: After materializing materialized_kv, reshape to [num_layers, N, num_kv_heads, head_dim] (not [..., num_heads, head_dim]). Read num_kv_heads from the model config, not from the PEFT adapter config (which knows nothing about GQA).
-
-2. RoPE Variants (High Impact — Already Partially Handled)
-
-Your vLLM injection already offsets the RoPE index for the synthetic sequence. But RoPE implementations vary significantly:
-
-┌───────────────────┬──────────────────────┬──────────────────────────────────────────────────────────────────────┐
-│       Model       │      RoPE Type       │                                Notes                                 │
-├───────────────────┼──────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ Qwen-1.5B         │ Standard RoPE        │ Baseline, working                                                    │
-│ (current)         │ θ=10000              │                                                                      │
-├───────────────────┼──────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ Llama-3.x         │ LongRoPE, θ=500000   │ Much higher base frequency — offset logic is the same, but the       │
-│                   │                      │ positional scale is different                                        │
-├───────────────────┼──────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ Mistral/Mixtral   │ Sliding Window       │ Window of 4096 tokens — injected tokens beyond the window are        │
-│                   │ Attention (SWA)      │ invisible to the model at positions they shouldn't be                │
-├───────────────────┼──────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ Qwen-2.5          │ Dynamic NTK-aware    │ Scaling factor changes with sequence length — your fixed offset may  │
-│                   │ RoPE                 │ drift                                                                │
-├───────────────────┼──────────────────────┼──────────────────────────────────────────────────────────────────────┤
-│ Phi-3/3.5         │ Standard RoPE +      │ Usually fine                                                         │
-│                   │ special tokens       │                                                                      │
-└───────────────────┴──────────────────────┴──────────────────────────────────────────────────────────────────────┘
-
-What to test: After injection on a new model, force the model to reference content that would only be in the injected prefix (e.g., "what coding language should I use?" — answer is embedded in the system prompt). If it answers correctly, RoPE continuity is intact.
-
-3. MLA — Multi-head Latent Attention (Architecture Blocker)
-
-DeepSeek-V2/V3 and DeepSeek-Coder-V2 use Multi-head Latent Attention, which compresses KV into a low-rank latent vector before storing it. The KV cache format is fundamentally different — instead of [num_layers, N, num_kv_heads, head_dim], the stored representation is a latent vector c_KV of dimension d_c << d_kv.
-
-If a partner tries to run your pipeline on a DeepSeek model, transpose_tensors.py will produce tensors that don't fit the KV slot shape at all. You need an explicit architecture check that errors out (not silently proceeds) when model_type == "deepseek_v2".
-
-4. Model Size and Memory Pressure
-
-On Qwen-1.5B, writing 28 layers × 256 tokens × token_dim is cheap. On Llama-3-70B (80 layers, 8192 token_dim), the write overhead scales by ~10x. The 15ms overhead assumption may not hold. You should re-profile the breakeven on any model with >40 layers before declaring a target virtual token count.
-
-5. PEFT Prefix Encoder Behavior on Larger Models
-
-prefix_projection=True runs a 2-layer MLP during materialization. The MLP input/output dimensionality is tied to the model's token_dim. On a 70B model, this materialization step itself becomes memory-heavy if done on CPU. transpose_tensors.py currently does all of this in-process — you'll want to add a --device cuda flag and stream layers when num_layers > 40.
-
----
-What to Validate Before Writing the Partner Pipeline
-
-These are the tests that tell you whether the core system generalizes before you spend time on packaging:
-
-Test 1: GQA Injection Correctness
-
-Train and inject on Qwen-2.5-7B-Instruct (it uses GQA: 4 KV heads, 14 attention heads). Check:
-- Does transpose_tensors.py produce the right shape?
-- Does output quality hold vs. cold start?
-
-This is the minimal test because Qwen-2.5 shares a family with your training model but introduces GQA. If this breaks, fix the shape logic before going wider.
-
-Test 2: Coherence vs. Token Count Curve
-
-On Qwen-1.5B (since you have it set up), run quality measurements at 64, 128, 256, 512 virtual tokens. You currently only have one data point where quality held. You need the curve to know whether 256 is the peak or whether 512 would be better. This matters because the answer transfers to larger models predictably (same compression ratio logic applies).
-
-Test 3: Cold APC Baseline (Fair Comparison)
-
-Your benchmark compares against warm APC. You need the cold APC measurement: run APC with a fresh cache (restart the engine between APC runs, or invalidate the prefix cache between trials). If cold APC ≈ cold start, injection wins cleanly. If vLLM's APC warms up within 1 request, your value prop only applies to single-shot agents.
-
-Test 4: Architecture Detection Stub
-
-Before the pipeline, write a function:
-def check_model_compatibility(model_config) -> dict:
-    # Returns: {"supported": bool, "attention_type": str,
-    #           "num_kv_heads": int, "requires_gqa_fix": bool, "reason": str}
-This runs at pipeline setup time and either proceeds or errors loudly. This is what protects your partners from silent corruption on unsupported architectures.
-
-Test 5: End-to-End on a Second Model Family
-
-Pick Llama-3.2-3B (different tokenizer family, different RoPE). Run the full loop: train prefix → transpose → inject → benchmark. You don't need a full quality evaluation — just confirm the pipeline doesn't crash and output is coherent. If it works on Qwen-1.5B and Llama-3.2-3B, the pipeline is worth writing.
-
----
-Recommended Sequencing
-
-Week 1: Test 1 (GQA) + Test 3 (cold APC baseline)
-         → If GQA breaks, fix transpose_tensors.py before anything else
-         → Cold APC result sharpens the story for partners
-
-Week 2: Test 2 (token count curve) + Test 4 (architecture detection)
-         → Token curve gives you the training recommendation for any model
-         → Detection stub makes the pipeline safe to hand off
-
-Week 3: Test 5 (Llama-3.2-3B end-to-end)
-         → If this works: write the pipeline
-         → If not: diagnose RoPE or head layout issue, fix, then pipeline
-
----
-What the Pipeline Needs (Once Tests Pass)
-
-A partner pipeline requires exactly five things to be scripted in sequence:
-
-1. download_model.sh — fetch target model weights
-2. generate_training_data.py — produce domain-specific JSONL from their use case
-3. prefixtraining.py — train the PEFT adapter (current script, parameterize MODEL_ID and NUM_VIRTUAL_TOKENS)
-4. transpose_tensors.py — materialize to .npy (current script, add GQA fix and --model-config argument)
-5. run_benchmark.sh — validate speedup and quality before they deploy
-
-The critical gating question before step 3 is: does the model use GQA? That answer determines whether transpose_tensors.py produces valid tensors. That's why Test 1 is the first unblock.
+![Cold TTFT per turn](LMCacheCentroid/results/combined_ttft_cold_perturn.png)
+![Warm TTFT per turn](LMCacheCentroid/results/combined_ttft_warm_perturn.png)
+![Summary](LMCacheCentroid/results/combined_ttft_summary.png)

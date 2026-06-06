@@ -1,5 +1,5 @@
 """
-multi_turn_benchmark.py — Multi-turn cache benchmark (vllm serve mode).
+multi_turn_benchmark.py - Multi-turn cache benchmark (vllm serve mode).
 
 This script starts vllm serve, runs the benchmark, then stops the server.
 TTFT is measured as time-to-first streaming chunk via the OpenAI-compatible API.
@@ -51,6 +51,15 @@ def build_messages(system_text: str, history: list[tuple[str, str]], user_text: 
     return msgs
 
 
+def build_prompt_ids(
+    tokenizer, system_text: str, history: list[tuple[str, str]], user_text: str
+) -> list[int]:
+    """Token IDs for full system+history+current user turn."""
+    messages = build_messages(system_text, history, user_text)
+    chat_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    return tokenizer.encode(chat_text, add_special_tokens=False)
+
+
 def build_compression_ids(
     tokenizer, history: list[tuple[str, str]], user_text: str, synthetic_len: int
 ) -> list[int]:
@@ -80,12 +89,16 @@ def build_centroid_env(args: argparse.Namespace) -> dict:
     env["VLLM_CENTROID_V_PATH"]    = args.centroid_v
     env["VLLM_CENTROID_SYS_TOKENS"] = "0"
     env["VLLM_CENTROID_LAYOUT"]    = "compression"
+    if args.pad_token_id is not None:
+        env["VLLM_CENTROID_PAD_TOKEN_ID"] = str(args.pad_token_id)
     return env
 
 
 def build_server_cmd(args: argparse.Namespace, enable_apc: bool) -> list[str]:
+    vllm_bin = _REPO / "venv" / "bin" / "vllm"
+    vllm_cmd = str(vllm_bin) if vllm_bin.exists() else "vllm"
     cmd = [
-        "vllm", "serve", args.model,
+        vllm_cmd, "serve", args.model,
         "--port", str(args.server_port),
         "--gpu-memory-utilization", str(args.gpu_mem),
         "--max-model-len", str(args.max_model_len),
@@ -253,6 +266,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--centroid-k",      default=str(_EXP / "centroids" / "N64_K.npy"))
     p.add_argument("--centroid-v",      default=str(_EXP / "centroids" / "N64_V.npy"))
     p.add_argument("--synthetic-len",   type=int,   default=64)
+    p.add_argument("--pad-token-id",    type=int,   default=None,
+                   help="Pad token ID used in build_compression_ids. When set, the server "
+                        "pre-registers the centroid prefix in APC so turn-1 shows local cache hits.")
     p.add_argument("--mode",            choices=["cold", "warm_apc", "synthetic"], required=True)
     p.add_argument("--out",             default=str(_EXP / "results" / "multi_turn_benchmark.jsonl"))
     p.add_argument("--conversation-file", default=None,
@@ -263,7 +279,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-tokens",      type=int,  default=1024)
     p.add_argument("--gpu-mem",         type=float, default=0.6)
     p.add_argument("--server-port",     type=int,   default=8000)
-    p.add_argument("--max-model-len",   type=int,   default=16384)
+    p.add_argument("--max-model-len",   type=int,   default=32768)
     return p.parse_args()
 
 
@@ -281,15 +297,28 @@ def main() -> None:
             raise FileNotFoundError(f"Centroid V not found: {args.centroid_v!r}")
 
     enable_apc = args.mode in ("warm_apc", "synthetic")
+
+    tokenizer = None
+    use_token_ids_for_all_modes = False
+    if args.mode == "synthetic" or "gpt-oss" in args.model.lower() or "gpt_oss" in args.model.lower():
+        from transformers import AutoTokenizer
+        tokenizer = AutoTokenizer.from_pretrained(args.model)
+        use_token_ids_for_all_modes = (
+            args.mode != "synthetic"
+            and ("gpt-oss" in args.model.lower() or "gpt_oss" in args.model.lower())
+        )
+
+    # Auto-detect pad token ID from tokenizer so the server can pre-register
+    # centroid prefix blocks in APC (enables turn-1 local cache hits).
+    if args.mode == "synthetic" and args.pad_token_id is None and tokenizer is not None:
+        pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+        if pad_id is not None:
+            args.pad_token_id = pad_id
+
     env = build_centroid_env(args) if args.mode == "synthetic" else os.environ.copy()
     cmd = build_server_cmd(args, enable_apc)
 
     system_text = Path(args.system_prompt).read_text().strip()
-
-    tokenizer = None
-    if args.mode == "synthetic":
-        from transformers import AutoTokenizer
-        tokenizer = AutoTokenizer.from_pretrained(args.model)
 
     if args.conversation_file:
         raw = json.loads(Path(args.conversation_file).read_text())
@@ -340,6 +369,11 @@ def main() -> None:
                             tokenizer, history, user_text, args.synthetic_len
                         )
                         centroid_tokens_saved = args.synthetic_len
+                    elif use_token_ids_for_all_modes:
+                        prompt_input = build_prompt_ids(
+                            tokenizer, system_text, history, user_text
+                        )
+                        centroid_tokens_saved = 0
                     else:
                         prompt_input = build_messages(system_text, history, user_text)
                         centroid_tokens_saved = 0

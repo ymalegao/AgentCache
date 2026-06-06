@@ -7,8 +7,8 @@ Usage:
     python analyze_multi_turn.py results/multi_turn_benchmark.jsonl
 """
 
+import argparse
 import json
-import sys
 import statistics
 from collections import defaultdict
 from pathlib import Path
@@ -18,6 +18,14 @@ try:
     _ROUGE_AVAILABLE = True
 except ImportError:
     _ROUGE_AVAILABLE = False
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    _MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    _MATPLOTLIB_AVAILABLE = False
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +41,14 @@ def mode_label(r: dict) -> str:
 
 
 MODE_ORDER = ["Cold", "Warm APC", "Synthetic N=64", "Synthetic N=128", "Synthetic N=256"]
+
+PLOT_COLORS = {
+    "Cold": "#4c566a",
+    "Warm APC": "#d08770",
+    "Synthetic N=64": "#5e81ac",
+    "Synthetic N=128": "#88c0d0",
+    "Synthetic N=256": "#a3be8c",
+}
 
 
 def load(path: str) -> dict[str, dict[int, list[dict]]]:
@@ -68,6 +84,11 @@ def has_code(text: str) -> bool:
     return "```" in text or "def " in text or "import " in text
 
 
+def default_plot_path(input_path: str) -> Path:
+    src = Path(input_path)
+    return src.with_name(f"{src.stem}_ttft_by_turn.png")
+
+
 # ---------------------------------------------------------------------------
 # Tables
 # ---------------------------------------------------------------------------
@@ -90,11 +111,59 @@ def print_per_turn_table(data, labels, turns, title, get_val, fmt="{:7.4f}"):
         print(row)
 
 
+def plot_ttft_by_turn(data, labels, turns, out_path: Path):
+    if not _MATPLOTLIB_AVAILABLE:
+        print("\n  (Skipping plot: install matplotlib to generate PNG output)")
+        return
+
+    plt.style.use("seaborn-v0_8-whitegrid")
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+
+    plotted = False
+    for lbl in labels:
+        xs = []
+        ys_ms = []
+        for t in turns:
+            recs = data.get(lbl, {}).get(t, [])
+            if not recs:
+                continue
+            xs.append(t)
+            ys_ms.append(mean([r["ttft_s"] for r in recs]) * 1000)
+        if not xs:
+            continue
+        plotted = True
+        ax.plot(
+            xs,
+            ys_ms,
+            marker="o",
+            linewidth=2.2,
+            markersize=6,
+            color=PLOT_COLORS.get(lbl),
+            label=lbl,
+        )
+
+    if not plotted:
+        print("\n  (Skipping plot: no turn-level TTFT data found)")
+        plt.close(fig)
+        return
+
+    ax.set_title("TTFT by Turn")
+    ax.set_xlabel("Turn")
+    ax.set_ylabel("Mean TTFT (ms)")
+    ax.set_xticks(turns)
+    ax.legend(frameon=True)
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+    print(f"\nPlot : {out_path}")
+
+
 # ---------------------------------------------------------------------------
 # Main analysis
 # ---------------------------------------------------------------------------
 
-def analyze(path: str):
+def analyze(path: str, plot_out: Path | None = None):
     data = load(path)
     labels = [l for l in MODE_ORDER if l in data]
     turns = sorted({t for lbl in labels for t in data[lbl]})
@@ -107,7 +176,7 @@ def analyze(path: str):
         convs = len({r["conversation_id"] for recs in data[lbl].values() for r in recs})
         print(f"  {lbl:<22}  {n:>4} records  ({convs} conversations × {len(turns)} turns)")
 
-    # ── TTFT per turn ─────────────────────────────────────────────────────────
+    # TTFT per turn
     print_per_turn_table(
         data, labels, turns,
         "TTFT (seconds) — mean across conversations",
@@ -115,7 +184,7 @@ def analyze(path: str):
         fmt="{:7.4f}",
     )
 
-    # ── Speedup vs cold per turn ───────────────────────────────────────────────
+    # Speedup vs cold per turn
     if "Cold" in data:
         print_section("Speedup vs Cold — per turn")
         col_w = 14
@@ -138,9 +207,9 @@ def analyze(path: str):
                     row += f"  {'—':>{col_w}}"
             print(row)
 
-    # ── KV Cache Hit Rate per turn (Prometheus-style aggregate) ──────────────
-    # Prefer kv_cache_hits/queries (prometheus) when non-zero.
-    # Fall back to apc_cached_tokens/physical_prompt_tokens (per-request vLLM field).
+    # KV cache hit rate per turn
+    # Prefer kv_cache_hits/queries when non-zero.
+    # Fall back to apc_cached_tokens/physical_prompt_tokens.
     def kv_hit_rate_for_records(recs: list[dict]) -> float:
         if not recs:
             return float("nan")
@@ -165,7 +234,7 @@ def analyze(path: str):
             row += f"  {'{:7.1f}%'.format(val) if recs else '—':>{col_w}}"
         print(row)
 
-    # ── Aggregate KV cache hit rate across all turns ──────────────────────────
+    # Aggregate KV cache hit rate
     print_section("Aggregate KV Cache Hit Rate (%) — across all turns and conversations")
     header = f"  {'Mode':<22} {'Hit Rate':>10} {'Total Hits':>12} {'Total Queries':>15}"
     print(header)
@@ -184,7 +253,7 @@ def analyze(path: str):
         rate = (total_hits / total_queries * 100) if total_queries else 0.0
         print(f"  {lbl:<22} {rate:>9.1f}%  {total_hits:>12.0f}  {total_queries:>15.0f}")
 
-    # ── Physical prompt tokens per turn ───────────────────────────────────────
+    # Physical prompt tokens per turn
     print_per_turn_table(
         data, labels, turns,
         "Physical Prompt Tokens — mean across conversations",
@@ -192,7 +261,7 @@ def analyze(path: str):
         fmt="{:7.0f}",
     )
 
-    # ── Centroid savings (synthetic modes only) ────────────────────────────────
+    # Centroid tokens saved per turn
     synth_labels = [l for l in labels if l.startswith("Synthetic")]
     if synth_labels:
         print_section("Centroid Tokens Saved (synthetic modes only — constant = N)")
@@ -201,7 +270,7 @@ def analyze(path: str):
             n_val = all_recs[0]["N"] if all_recs else "?"
             print(f"  {lbl:<22}  {n_val} tokens saved per turn (gap injection)")
 
-    # ── Aggregate TTFT stats ───────────────────────────────────────────────────
+    # Aggregate TTFT stats
     print_section("Aggregate TTFT — across all turns and conversations")
     header = f"  {'Mode':<22} {'Mean':>8} {'Median':>8} {'Stdev':>8} {'Min':>8} {'Max':>8}"
     print(header)
@@ -217,7 +286,7 @@ def analyze(path: str):
             f"{max(vals):>8.4f}"
         )
 
-    # ── Quality ───────────────────────────────────────────────────────────────
+    # Quality
     print_section("Response Quality (records with 'response' field)")
     has_response = {
         lbl: [r for recs in data[lbl].values() for r in recs if "response" in r]
@@ -249,7 +318,7 @@ def analyze(path: str):
                 f"{code_pct:>10.1f}% {trunc_pct:>11.1f}% {goodbye_pct:>9.1f}%"
             )
 
-        # ── ROUGE-L vs Cold baseline ───────────────────────────────────────────
+        # ROUGE-L vs cold baseline
         if "Cold" not in data or not has_response.get("Cold"):
             print("\n  (Skipping ROUGE-L: no Cold baseline responses found)")
         elif not _ROUGE_AVAILABLE:
@@ -327,11 +396,31 @@ def analyze(path: str):
                 print(f"  USER: {r['user'][:100]}")
                 print(f"  RESP: {r['response'][:200].replace(chr(10), ' ')}")
 
+    if plot_out is not None:
+        plot_ttft_by_turn(data, labels, turns, plot_out)
+
     print()
 
 
-if __name__ == "__main__":
-    path = sys.argv[1] if len(sys.argv) > 1 else str(
-        Path(__file__).parent / "results" / "multi_turn_benchmark.jsonl"
+def parse_args() -> argparse.Namespace:
+    default_input = Path(__file__).parent / "results" / "multi_turn_benchmark.jsonl"
+    p = argparse.ArgumentParser(description="Analyze multi-turn cache benchmark results.")
+    p.add_argument("path", nargs="?", default=str(default_input))
+    p.add_argument(
+        "--plot-out",
+        type=Path,
+        default=None,
+        help="Optional PNG output path for a TTFT-by-turn plot. Defaults next to the input JSONL.",
     )
-    analyze(path)
+    p.add_argument(
+        "--no-plot",
+        action="store_true",
+        help="Print tables only and skip PNG generation.",
+    )
+    return p.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    plot_out = None if args.no_plot else (args.plot_out or default_plot_path(args.path))
+    analyze(args.path, plot_out=plot_out)

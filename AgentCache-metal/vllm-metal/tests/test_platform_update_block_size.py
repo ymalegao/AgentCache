@@ -1,0 +1,208 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Unit tests for MetalPlatform.update_block_size_for_backend() and _find_non_ssm_backend().
+
+Tests cover:
+1. _find_non_ssm_backend returns MetalBackend with correct kernel block alignment
+2. update_block_size_for_backend delegates to vLLM base implementation
+3. Metal-specific adjustments (block_size multiple of 16 for paged attention)
+"""
+
+from unittest.mock import MagicMock, patch
+
+import pytest
+from vllm.config import CacheConfig, ModelConfig, ParallelConfig, VllmConfig
+
+from vllm_metal.platform import MetalPlatform
+
+
+class TestFindNonSsmBackend:
+    """Test suite for _find_non_ssm_backend() method."""
+
+    def test_returns_metal_backend_class(self):
+        """Test: _find_non_ssm_backend returns a MetalBackend class."""
+        backend_cls = MetalPlatform._find_non_ssm_backend(None)  # type: ignore
+
+        assert backend_cls is not None
+        assert backend_cls.get_name() == "METAL_ATTN"
+
+    def test_metal_backend_kernel_block_sizes(self):
+        """Test: MetalBackend returns MultipleOf(16) for kernel block sizes.
+
+        16 is the Metal paged-attention kernel sweet spot: bs=8 gives no
+        speedup, bs=32 is ~46% slower TPOT. Advertising MultipleOf(16) makes
+        vLLM's selector default to 16 for non-hybrid models and lets hybrid
+        alignment compute multiples-of-16 for SSM/Mamba page sizes.
+        """
+        from vllm.v1.attention.backend import MultipleOf
+
+        backend_cls = MetalPlatform._find_non_ssm_backend(None)  # type: ignore
+        sizes = backend_cls.get_supported_kernel_block_sizes()  # type: ignore
+
+        assert len(sizes) == 1
+        assert isinstance(sizes[0], MultipleOf)
+        assert sizes[0].base == 16
+
+    def test_metal_backend_required_methods(self):
+        """Test: MetalBackend has all required AttentionBackend methods."""
+        backend_cls = MetalPlatform._find_non_ssm_backend(None)  # type: ignore
+
+        # Check all required static methods exist
+        assert hasattr(backend_cls, "get_name")
+        assert hasattr(backend_cls, "get_supported_kernel_block_sizes")
+        assert hasattr(backend_cls, "get_impl_cls")
+        assert hasattr(backend_cls, "get_builder_cls")
+        assert hasattr(backend_cls, "get_kv_cache_shape")
+
+        # Verify they raise NotImplementedError (not implemented for block_size calc)
+        with pytest.raises(NotImplementedError):
+            backend_cls.get_impl_cls()  # type: ignore
+        with pytest.raises(NotImplementedError):
+            backend_cls.get_builder_cls()  # type: ignore
+        with pytest.raises(NotImplementedError):
+            backend_cls.get_kv_cache_shape()  # type: ignore
+
+
+class TestUpdateBlockSizeForBackend:
+    """Test suite for update_block_size_for_backend() method."""
+
+    # ========================================================================
+    # Fixtures
+    # ========================================================================
+
+    @pytest.fixture
+    def base_cache_config(self):
+        """Create a base CacheConfig mock for testing."""
+        cache_config = MagicMock(spec=CacheConfig)
+        cache_config.block_size = 16
+        cache_config.user_specified_block_size = False
+        cache_config.gpu_memory_utilization = 0.9
+        cache_config.cache_dtype = "auto"
+        cache_config.mamba_cache_mode = "none"
+        cache_config.mamba_block_size = None
+        cache_config.mamba_page_size_padded = None
+        return cache_config
+
+    @pytest.fixture
+    def base_model_config(self):
+        """Create a base ModelConfig mock for testing."""
+        import torch
+
+        model_config = MagicMock(spec=ModelConfig)
+        model_config.is_hybrid = True
+        model_config.architecture = "Qwen3_5ForCausalLM"
+        model_config.dtype = torch.float16
+        model_config.max_model_len = 512
+        model_config.get_num_kv_heads.return_value = 8
+        model_config.get_head_size.return_value = 128
+        return model_config
+
+    @pytest.fixture
+    def vllm_config(self, base_cache_config, base_model_config):
+        """Create a complete VllmConfig for hybrid model testing."""
+        parallel_config = MagicMock(spec=ParallelConfig)
+        parallel_config.tensor_parallel_size = 1
+        parallel_config.pipeline_parallel_size = 1
+
+        config = MagicMock(spec=VllmConfig)
+        config.model_config = base_model_config
+        config.cache_config = base_cache_config
+        config.parallel_config = parallel_config
+        return config
+
+    @pytest.fixture
+    def stub_super_update(self):
+        """Stub vLLM's ``Platform.update_block_size_for_backend`` (the base
+        method ``super()`` resolves to). Tests in this suite assert *Metal's*
+        wrapping behavior — the warning, the post-super multiple-of-32
+        adjustment, and the delegation itself — not vLLM's internal
+        ``_align_hybrid_block_size`` math, which has its own coverage upstream
+        and reads ``ModelConfig`` attributes our mocks deliberately don't carry.
+        """
+        with patch(
+            "vllm.platforms.interface.Platform.update_block_size_for_backend"
+        ) as m:
+            yield m
+
+    # ========================================================================
+    # Core Functionality Tests
+    # ========================================================================
+
+    def test_calls_super_implementation(self, vllm_config, stub_super_update):
+        """Test: update_block_size_for_backend delegates to vLLM's base."""
+        MetalPlatform.update_block_size_for_backend(vllm_config)
+
+        stub_super_update.assert_called_once_with(vllm_config)
+
+    def test_non_hybrid_model_skipped(self, vllm_config):
+        """Test: Non-hybrid model skips Metal-specific adjustments.
+
+        Non-hybrid models use base implementation without Metal adjustments.
+        """
+        # Set model as non-hybrid
+        vllm_config.model_config.is_hybrid = False
+        original_block_size = vllm_config.cache_config.block_size
+
+        # Execute (should use base implementation only)
+        MetalPlatform.update_block_size_for_backend(vllm_config)
+
+        # For non-hybrid, base implementation may adjust block_size
+        # but Metal-specific paged attention adjustment should not apply
+        assert vllm_config.cache_config.block_size >= original_block_size
+
+    def test_model_config_none(self):
+        """Test: None model_config returns early without error."""
+        cache_config = MagicMock(spec=CacheConfig)
+        config = MagicMock(spec=VllmConfig)
+        config.model_config = None
+        config.cache_config = cache_config
+
+        # Execute (should not raise)
+        MetalPlatform.update_block_size_for_backend(config)
+
+    # ========================================================================
+    # Metal-Specific Adjustments
+    # ========================================================================
+
+    def test_paged_attention_logs_warning(
+        self, vllm_config, stub_super_update, caplog, monkeypatch
+    ):
+        """Test: Hybrid + paged attention emits the block-size-translation warning.
+
+        ``vllm_metal/__init__.py`` sets ``propagate=False`` on the
+        ``vllm_metal`` logger so its messages don't double-print through
+        vLLM's handler. caplog hooks the root logger via propagation, so we
+        re-enable it for this test only (monkeypatch auto-restores after).
+        """
+        import logging
+
+        # _configure_logging() sets propagate=False on the parent logger so
+        # vllm_metal messages don't double-print through vLLM's handler.
+        # caplog captures via root propagation, so re-enable for this test.
+        monkeypatch.setattr(logging.getLogger("vllm_metal"), "propagate", True)
+
+        with patch("vllm_metal.config.get_config") as mock_get_config:
+            mock_metal_config = MagicMock()
+            mock_metal_config.use_paged_attention = True
+            mock_get_config.return_value = mock_metal_config
+
+            with caplog.at_level(logging.WARNING, logger="vllm_metal.platform"):
+                MetalPlatform.update_block_size_for_backend(vllm_config)
+
+            assert "Hybrid model" in caplog.text
+            assert "paged attention" in caplog.text
+
+    def test_wrapper_preserves_super_block_size(
+        self, vllm_config, stub_super_update, caplog
+    ):
+        """Test: wrapper does not mutate block_size set by base implementation."""
+        vllm_config.cache_config.block_size = 64
+
+        with patch("vllm_metal.config.get_config") as mock_get_config:
+            mock_metal_config = MagicMock()
+            mock_metal_config.use_paged_attention = True
+            mock_get_config.return_value = mock_metal_config
+
+            MetalPlatform.update_block_size_for_backend(vllm_config)
+
+            assert vllm_config.cache_config.block_size == 64
+            assert "Metal paged attention requires block_size" not in caplog.text

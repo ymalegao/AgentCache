@@ -27,9 +27,9 @@ EVAL_SIZE = 25
 # so outputs line up with run_training_pipeline.py defaults.
 _HERE = Path(__file__).resolve().parent          # .../agentcache_compression
 _REPO = _HERE.parent                             # .../agentcache
-SRC = _REPO / "good_examples" / "vllm_good_examples_raw.jsonl"
-TRAIN_OUT = _HERE / "data" / "python_agent_train.jsonl"
-EVAL_OUT = _HERE / "data" / "python_agent_eval.jsonl"
+SRC = _REPO / "good_examples" / "vllm_good_examples_raw_2000_search.jsonl"
+TRAIN_OUT = _HERE / "data" / "search_agent_train.jsonl"
+EVAL_OUT = _HERE / "data" / "search_agent_eval.jsonl"
 
 PYTHON_SIGNALS = [
     r"\bpython\b", r"\bdef \b", r"\bimport \b", r"\bclass \b",
