@@ -146,13 +146,3 @@ All three non-cold conditions score 1.0 ROUGE-L against the cold baseline across
 ![Cold TTFT per turn](LMCacheCentroid/results/combined_ttft_cold_perturn.png)
 ![Warm TTFT per turn](LMCacheCentroid/results/combined_ttft_warm_perturn.png)
 ![Summary](LMCacheCentroid/results/combined_ttft_summary.png)
-
----
-
-## Status
-
-- [x] vLLM patched with CentroidInjector and scheduler gap mechanism
-- [x] PEFT prefix-tuning pipeline (train, export, evaluate)
-- [x] Single-agent A/B benchmark: cold vs centroid vs warm APC
-- [x] Multi-agent benchmark: codingN256 and searchN256 centroids, per-request routing
-- [x] LMCache + centroid combined benchmark with ROUGE-L quality verification
