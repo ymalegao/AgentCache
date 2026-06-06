@@ -1,5 +1,5 @@
 """
-test_compression.py — Phase 8 evaluation harness.
+test_compression.py - Phase 8 evaluation harness.
 
 Three modes (one per invocation via --mode):
   cold_no_synthetic    Full system+user prompt, no centroid, APC disabled.
@@ -53,8 +53,8 @@ def build_prompt_str(tokenizer, system_text: str, user_text: str) -> str:
 def build_compression_ids(tokenizer, user_text: str, synthetic_len: int) -> list[int]:
     """[pad]*N + user-chat token IDs (no system prompt).
 
-    The N pad tokens are NEVER computed — the centroid gap mechanism skips them
-    and injects synthetic KV for positions 0..N-1.  All M user tokens are
+    The N pad tokens are never prefilled. The centroid gap mechanism skips them
+    and injects synthetic KV for positions 0..N-1. All M user tokens are
     scheduled for normal prefill at positions N..N+M-1.
     """
     chat_text = tokenizer.apply_chat_template(

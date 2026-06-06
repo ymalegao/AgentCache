@@ -3,7 +3,7 @@ import os
 import argparse
 from pathlib import Path
 
-# Plain vLLM — no centroid load/inject (used to collect training targets).
+# Plain vLLM, no centroid load or inject. Used to collect training targets.
 os.environ["VLLM_CENTROID_SCHEDULER"] = "0"
 os.environ.setdefault("HF_HOME", "/mnt/g/agentcache/hf_cache")
 

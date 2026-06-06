@@ -1,7 +1,7 @@
 """
-AB study: What drives TTFT improvement — model size or centroid size?
+AB study: What drives TTFT improvement, model size or centroid size?
 
-Layout (2×3):
+Layout (2x3):
   [A] Turn-by-turn: Qwen-1B   [B] Turn-by-turn: Qwen-7B   [C] Turn-by-turn: GPT-20B
   [D] Speedup vs cold          [E] N ablation               [F] Turn-1 vs mid-conv speedup
 """
@@ -45,7 +45,7 @@ def group_by(records, *keys):
 
 all_records = {m: load(p) for m, p in FILES.items()}
 
-# ── Figure layout ─────────────────────────────────────────────────────────────
+# Figure layout
 fig = plt.figure(figsize=(18, 10))
 gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.42, wspace=0.32)
 axes_top = [fig.add_subplot(gs[0, i]) for i in range(3)]
@@ -56,7 +56,7 @@ fig.suptitle(
     fontsize=13, fontweight="bold", y=1.01,
 )
 
-# ── Panels A–C: Turn-by-turn for each model ───────────────────────────────────
+# Panels A-C: turn-by-turn for each model
 # Shared y-axis limit so panels are visually comparable
 y_max_global = 1.15
 
@@ -104,7 +104,7 @@ axes_top[1].set_title("Qwen-7B", fontweight="bold")
 fig.text(0.5, 0.985, "Turn-by-turn TTFT — finding: model size determines how much synthetic helps",
          ha="center", fontsize=9, style="italic", color="#444")
 
-# ── Panel D: Speedup over cold by model & config ─────────────────────────────
+# Panel D: speedup over cold by model and config
 ax_d = axes_bot[0]
 
 bar_w = 0.25
@@ -141,7 +141,7 @@ ax_d.grid(axis="y", alpha=0.25, zorder=1)
 ax_d.text(0.5, -0.22, "Finding: 1B gains <1x, 7B +49%, 20B +80%",
           transform=ax_d.transAxes, ha="center", fontsize=8, style="italic", color="#555")
 
-# ── Panel E: N ablation across models ─────────────────────────────────────────
+# Panel E: N ablation across models
 ax_e = axes_bot[1]
 
 n_vals = [64, 128, 256]
@@ -174,8 +174,8 @@ ax_e.grid(axis="y", alpha=0.25, zorder=1)
 ax_e.text(0.5, -0.22, "Finding: N=64 ≈ N=256 at 1B & 7B; slight gain at 20B",
           transform=ax_e.transAxes, ha="center", fontsize=8, style="italic", color="#555")
 
-# ── Panel F: Turn-1 vs mid-conversation (turns 2–5) speedup ──────────────────
-# This separates cold-start benefit from sustained benefit
+# Panel F: turn-1 vs mid-conversation speedup
+# Separates cold-start benefit from sustained benefit
 ax_f = axes_bot[2]
 
 bar_w_f = 0.22
