@@ -51,6 +51,23 @@ def build_messages(system_text: str, history: list[tuple[str, str]], user_text: 
     return msgs
 
 
+def strip_to_final_channel(text: str) -> str:
+    """Keep only the user-facing 'final' channel of a Harmony-format (GPT-OSS) response.
+
+    GPT-OSS emits chain-of-thought in an 'analysis' channel followed by the real
+    answer in a 'final' channel; decoded as plain text the boundary appears as
+    'assistantfinal' (or a bare 'final' prefix when there is no analysis text).
+    Feeding the raw multi-channel text back as assistant history progressively
+    corrupts the conversation format and degenerates later turns, so both the
+    history and the stored response must contain only the final channel.
+    """
+    if "assistantfinal" in text:
+        return text.split("assistantfinal")[-1].lstrip()
+    if text.startswith("final"):
+        return text[len("final"):].lstrip()
+    return text
+
+
 def build_prompt_ids(
     tokenizer, system_text: str, history: list[tuple[str, str]], user_text: str
 ) -> list[int]:
@@ -298,15 +315,14 @@ def main() -> None:
 
     enable_apc = args.mode in ("warm_apc", "synthetic")
 
+    is_gpt_oss = "gpt-oss" in args.model.lower() or "gpt_oss" in args.model.lower()
+
     tokenizer = None
     use_token_ids_for_all_modes = False
-    if args.mode == "synthetic" or "gpt-oss" in args.model.lower() or "gpt_oss" in args.model.lower():
+    if args.mode == "synthetic" or is_gpt_oss:
         from transformers import AutoTokenizer
         tokenizer = AutoTokenizer.from_pretrained(args.model)
-        use_token_ids_for_all_modes = (
-            args.mode != "synthetic"
-            and ("gpt-oss" in args.model.lower() or "gpt_oss" in args.model.lower())
-        )
+        use_token_ids_for_all_modes = args.mode != "synthetic" and is_gpt_oss
 
     # Auto-detect pad token ID from tokenizer so the server can pre-register
     # centroid prefix blocks in APC (enables turn-1 local cache hits).
@@ -392,6 +408,11 @@ def main() -> None:
                         client, prompt_input, args.model, args.max_tokens,
                         prompt_tokens, args.max_model_len
                     )
+                    if is_gpt_oss:
+                        # Harmony models: keep only the final channel, otherwise
+                        # raw analysis-channel text fed back as history corrupts
+                        # the conversation and degenerates later turns.
+                        assistant_text = strip_to_final_channel(assistant_text)
                     history.append((user_text, assistant_text))
 
                     record = {
