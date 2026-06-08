@@ -1,0 +1,392 @@
+### START syn64_r0 03:37:52
+
+=== mode=synthetic  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0222s  phys_tokens=184  kv_hits=0/184  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0444s  phys_tokens=901  kv_hits=176/901  kv_hit_rate=19.5%
+  conv=0 turn=3 turn_3  ttft=1.5236s  phys_tokens=1954  kv_hits=896/1954  kv_hit_rate=45.9%
+  conv=0 turn=4 turn_4  ttft=0.1114s  phys_tokens=3013  kv_hits=1952/3013  kv_hit_rate=64.8%
+  conv=0 turn=5 turn_5  ttft=0.1347s  phys_tokens=4285  kv_hits=3008/4285  kv_hit_rate=70.2%
+  conv=0 turn=6 turn_6  ttft=0.6050s  phys_tokens=5587  kv_hits=4272/5587  kv_hit_rate=76.5%
+  conv=0 turn=7 turn_7  ttft=0.1503s  phys_tokens=7017  kv_hits=5584/7017  kv_hit_rate=79.6%
+  conv=0 turn=8 turn_8  ttft=0.6261s  phys_tokens=8390  kv_hits=7008/8390  kv_hit_rate=83.5%
+  conv=0 turn=9 turn_9  ttft=0.1411s  phys_tokens=9151  kv_hits=8384/9151  kv_hit_rate=91.6%
+  conv=0 turn=10 turn_10  ttft=0.6398s  phys_tokens=10619  kv_hits=9152/10619  kv_hit_rate=86.2%
+
+Results appended to agentcache_compression/results/tier1/syn64_r0.jsonl
+Stopping vllm serve...
+### END syn64_r0 03:40:14
+### START syn128_r0 03:40:14
+
+=== mode=synthetic  N=128  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0254s  phys_tokens=248  kv_hits=0/248  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0510s  phys_tokens=934  kv_hits=240/934  kv_hit_rate=25.7%
+  conv=0 turn=3 turn_3  ttft=0.0831s  phys_tokens=1835  kv_hits=928/1835  kv_hit_rate=50.6%
+  conv=0 turn=4 turn_4  ttft=0.5893s  phys_tokens=2913  kv_hits=1824/2913  kv_hit_rate=62.6%
+  conv=0 turn=5 turn_5  ttft=0.1413s  phys_tokens=4278  kv_hits=2912/4278  kv_hit_rate=68.1%
+  conv=0 turn=6 turn_6  ttft=0.1294s  phys_tokens=5530  kv_hits=4272/5530  kv_hit_rate=77.3%
+  conv=0 turn=7 turn_7  ttft=0.1377s  phys_tokens=6842  kv_hits=5520/6842  kv_hit_rate=80.7%
+  conv=0 turn=8 turn_8  ttft=0.1295s  phys_tokens=7805  kv_hits=6832/7805  kv_hit_rate=87.5%
+  conv=0 turn=9 turn_9  ttft=0.1336s  phys_tokens=8293  kv_hits=7792/8293  kv_hit_rate=94.0%
+  conv=0 turn=10 turn_10  ttft=0.6324s  phys_tokens=9891  kv_hits=8288/9891  kv_hit_rate=83.8%
+
+Results appended to agentcache_compression/results/tier1/syn128_r0.jsonl
+Stopping vllm serve...
+### END syn128_r0 03:42:38
+### START syn256_r0 03:42:38
+
+=== mode=synthetic  N=256  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0242s  phys_tokens=376  kv_hits=0/376  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0455s  phys_tokens=1090  kv_hits=368/1090  kv_hit_rate=33.8%
+  conv=0 turn=3 turn_3  ttft=0.1255s  phys_tokens=2250  kv_hits=1088/2250  kv_hit_rate=48.4%
+  conv=0 turn=4 turn_4  ttft=0.1299s  phys_tokens=3674  kv_hits=2240/3674  kv_hit_rate=61.0%
+  conv=0 turn=5 turn_5  ttft=0.1346s  phys_tokens=4953  kv_hits=3664/4953  kv_hit_rate=74.0%
+  conv=0 turn=6 turn_6  ttft=0.1224s  phys_tokens=6230  kv_hits=4944/6230  kv_hit_rate=79.4%
+  conv=0 turn=7 turn_7  ttft=0.1381s  phys_tokens=7572  kv_hits=6224/7572  kv_hit_rate=82.2%
+  conv=0 turn=8 turn_8  ttft=0.1577s  phys_tokens=8871  kv_hits=7568/8871  kv_hit_rate=85.3%
+  conv=0 turn=9 turn_9  ttft=0.1910s  phys_tokens=10985  kv_hits=8864/10985  kv_hit_rate=80.7%
+  conv=0 turn=10 turn_10  ttft=0.2128s  phys_tokens=12455  kv_hits=10976/12455  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/tier1/syn256_r0.jsonl
+Stopping vllm serve...
+### END syn256_r0 03:45:03
+### START syn64_r1 03:45:03
+
+=== mode=synthetic  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0191s  phys_tokens=184  kv_hits=0/184  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0412s  phys_tokens=901  kv_hits=176/901  kv_hit_rate=19.5%
+  conv=0 turn=3 turn_3  ttft=0.1189s  phys_tokens=1954  kv_hits=896/1954  kv_hit_rate=45.9%
+  conv=0 turn=4 turn_4  ttft=0.1150s  phys_tokens=3013  kv_hits=1952/3013  kv_hit_rate=64.8%
+  conv=0 turn=5 turn_5  ttft=0.1291s  phys_tokens=4285  kv_hits=3008/4285  kv_hit_rate=70.2%
+  conv=0 turn=6 turn_6  ttft=0.1480s  phys_tokens=5587  kv_hits=4272/5587  kv_hit_rate=76.5%
+  conv=0 turn=7 turn_7  ttft=0.1485s  phys_tokens=7017  kv_hits=5584/7017  kv_hit_rate=79.6%
+  conv=0 turn=8 turn_8  ttft=0.1577s  phys_tokens=8390  kv_hits=7008/8390  kv_hit_rate=83.5%
+  conv=0 turn=9 turn_9  ttft=0.1330s  phys_tokens=9151  kv_hits=8384/9151  kv_hit_rate=91.6%
+  conv=0 turn=10 turn_10  ttft=0.1787s  phys_tokens=10619  kv_hits=9152/10619  kv_hit_rate=86.2%
+
+Results appended to agentcache_compression/results/tier1/syn64_r1.jsonl
+Stopping vllm serve...
+### END syn64_r1 03:47:22
+### START syn128_r1 03:47:22
+
+=== mode=synthetic  N=128  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0236s  phys_tokens=248  kv_hits=0/248  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0441s  phys_tokens=934  kv_hits=240/934  kv_hit_rate=25.7%
+  conv=0 turn=3 turn_3  ttft=0.0769s  phys_tokens=1835  kv_hits=928/1835  kv_hit_rate=50.6%
+  conv=0 turn=4 turn_4  ttft=0.1300s  phys_tokens=2913  kv_hits=1824/2913  kv_hit_rate=62.6%
+  conv=0 turn=5 turn_5  ttft=0.1379s  phys_tokens=4278  kv_hits=2912/4278  kv_hit_rate=68.1%
+  conv=0 turn=6 turn_6  ttft=0.1389s  phys_tokens=5530  kv_hits=4272/5530  kv_hit_rate=77.3%
+  conv=0 turn=7 turn_7  ttft=0.1451s  phys_tokens=6842  kv_hits=5520/6842  kv_hit_rate=80.7%
+  conv=0 turn=8 turn_8  ttft=0.1273s  phys_tokens=7805  kv_hits=6832/7805  kv_hit_rate=87.5%
+  conv=0 turn=9 turn_9  ttft=0.1279s  phys_tokens=8293  kv_hits=7792/8293  kv_hit_rate=94.0%
+  conv=0 turn=10 turn_10  ttft=0.1840s  phys_tokens=9891  kv_hits=8288/9891  kv_hit_rate=83.8%
+
+Results appended to agentcache_compression/results/tier1/syn128_r1.jsonl
+Stopping vllm serve...
+### END syn128_r1 03:49:44
+### START syn256_r1 03:49:44
+
+=== mode=synthetic  N=256  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0239s  phys_tokens=376  kv_hits=0/376  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0466s  phys_tokens=1090  kv_hits=368/1090  kv_hit_rate=33.8%
+  conv=0 turn=3 turn_3  ttft=0.1274s  phys_tokens=2250  kv_hits=1088/2250  kv_hit_rate=48.4%
+  conv=0 turn=4 turn_4  ttft=0.1357s  phys_tokens=3674  kv_hits=2240/3674  kv_hit_rate=61.0%
+  conv=0 turn=5 turn_5  ttft=0.1362s  phys_tokens=4953  kv_hits=3664/4953  kv_hit_rate=74.0%
+  conv=0 turn=6 turn_6  ttft=0.1363s  phys_tokens=6230  kv_hits=4944/6230  kv_hit_rate=79.4%
+  conv=0 turn=7 turn_7  ttft=0.1526s  phys_tokens=7572  kv_hits=6224/7572  kv_hit_rate=82.2%
+  conv=0 turn=8 turn_8  ttft=0.1566s  phys_tokens=8871  kv_hits=7568/8871  kv_hit_rate=85.3%
+  conv=0 turn=9 turn_9  ttft=0.1910s  phys_tokens=10985  kv_hits=8864/10985  kv_hit_rate=80.7%
+  conv=0 turn=10 turn_10  ttft=0.2006s  phys_tokens=12455  kv_hits=10976/12455  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/tier1/syn256_r1.jsonl
+Stopping vllm serve...
+### END syn256_r1 03:52:09
+### START syn64_r2 03:52:09
+
+=== mode=synthetic  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0237s  phys_tokens=184  kv_hits=0/184  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0449s  phys_tokens=901  kv_hits=176/901  kv_hit_rate=19.5%
+  conv=0 turn=3 turn_3  ttft=0.1254s  phys_tokens=1954  kv_hits=896/1954  kv_hit_rate=45.9%
+  conv=0 turn=4 turn_4  ttft=0.1194s  phys_tokens=3013  kv_hits=1952/3013  kv_hit_rate=64.8%
+  conv=0 turn=5 turn_5  ttft=0.1318s  phys_tokens=4285  kv_hits=3008/4285  kv_hit_rate=70.2%
+  conv=0 turn=6 turn_6  ttft=0.1412s  phys_tokens=5587  kv_hits=4272/5587  kv_hit_rate=76.5%
+  conv=0 turn=7 turn_7  ttft=0.1493s  phys_tokens=7017  kv_hits=5584/7017  kv_hit_rate=79.6%
+  conv=0 turn=8 turn_8  ttft=0.1703s  phys_tokens=8390  kv_hits=7008/8390  kv_hit_rate=83.5%
+  conv=0 turn=9 turn_9  ttft=0.1374s  phys_tokens=9151  kv_hits=8384/9151  kv_hit_rate=91.6%
+  conv=0 turn=10 turn_10  ttft=0.1830s  phys_tokens=10619  kv_hits=9152/10619  kv_hit_rate=86.2%
+
+Results appended to agentcache_compression/results/tier1/syn64_r2.jsonl
+Stopping vllm serve...
+### END syn64_r2 03:54:27
+### START syn128_r2 03:54:27
+
+=== mode=synthetic  N=128  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0244s  phys_tokens=248  kv_hits=0/248  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0523s  phys_tokens=934  kv_hits=240/934  kv_hit_rate=25.7%
+  conv=0 turn=3 turn_3  ttft=0.0887s  phys_tokens=1835  kv_hits=928/1835  kv_hit_rate=50.6%
+  conv=0 turn=4 turn_4  ttft=0.1316s  phys_tokens=2913  kv_hits=1824/2913  kv_hit_rate=62.6%
+  conv=0 turn=5 turn_5  ttft=0.1355s  phys_tokens=4278  kv_hits=2912/4278  kv_hit_rate=68.1%
+  conv=0 turn=6 turn_6  ttft=0.1435s  phys_tokens=5530  kv_hits=4272/5530  kv_hit_rate=77.3%
+  conv=0 turn=7 turn_7  ttft=0.1404s  phys_tokens=6842  kv_hits=5520/6842  kv_hit_rate=80.7%
+  conv=0 turn=8 turn_8  ttft=0.1250s  phys_tokens=7805  kv_hits=6832/7805  kv_hit_rate=87.5%
+  conv=0 turn=9 turn_9  ttft=0.1224s  phys_tokens=8293  kv_hits=7792/8293  kv_hit_rate=94.0%
+  conv=0 turn=10 turn_10  ttft=0.1803s  phys_tokens=9891  kv_hits=8288/9891  kv_hit_rate=83.8%
+
+Results appended to agentcache_compression/results/tier1/syn128_r2.jsonl
+Stopping vllm serve...
+### END syn128_r2 03:56:50
+### START syn256_r2 03:56:50
+
+=== mode=synthetic  N=256  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0252s  phys_tokens=376  kv_hits=0/376  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0520s  phys_tokens=1090  kv_hits=368/1090  kv_hit_rate=33.8%
+  conv=0 turn=3 turn_3  ttft=0.1213s  phys_tokens=2250  kv_hits=1088/2250  kv_hit_rate=48.4%
+  conv=0 turn=4 turn_4  ttft=0.1374s  phys_tokens=3674  kv_hits=2240/3674  kv_hit_rate=61.0%
+  conv=0 turn=5 turn_5  ttft=0.1492s  phys_tokens=4953  kv_hits=3664/4953  kv_hit_rate=74.0%
+  conv=0 turn=6 turn_6  ttft=0.1512s  phys_tokens=6230  kv_hits=4944/6230  kv_hit_rate=79.4%
+  conv=0 turn=7 turn_7  ttft=0.1698s  phys_tokens=7572  kv_hits=6224/7572  kv_hit_rate=82.2%
+  conv=0 turn=8 turn_8  ttft=0.1739s  phys_tokens=8871  kv_hits=7568/8871  kv_hit_rate=85.3%
+  conv=0 turn=9 turn_9  ttft=0.2060s  phys_tokens=10985  kv_hits=8864/10985  kv_hit_rate=80.7%
+  conv=0 turn=10 turn_10  ttft=0.2532s  phys_tokens=12455  kv_hits=10976/12455  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/tier1/syn256_r2.jsonl
+Stopping vllm serve...
+### END syn256_r2 03:59:15
+### START syn64_r3 03:59:15
+
+=== mode=synthetic  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0241s  phys_tokens=184  kv_hits=0/184  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0463s  phys_tokens=901  kv_hits=176/901  kv_hit_rate=19.5%
+  conv=0 turn=3 turn_3  ttft=0.1207s  phys_tokens=1954  kv_hits=896/1954  kv_hit_rate=45.9%
+  conv=0 turn=4 turn_4  ttft=0.1153s  phys_tokens=3013  kv_hits=1952/3013  kv_hit_rate=64.8%
+  conv=0 turn=5 turn_5  ttft=0.1324s  phys_tokens=4285  kv_hits=3008/4285  kv_hit_rate=70.2%
+  conv=0 turn=6 turn_6  ttft=0.1440s  phys_tokens=5587  kv_hits=4272/5587  kv_hit_rate=76.5%
+  conv=0 turn=7 turn_7  ttft=0.1466s  phys_tokens=7017  kv_hits=5584/7017  kv_hit_rate=79.6%
+  conv=0 turn=8 turn_8  ttft=0.1708s  phys_tokens=8390  kv_hits=7008/8390  kv_hit_rate=83.5%
+  conv=0 turn=9 turn_9  ttft=0.1395s  phys_tokens=9151  kv_hits=8384/9151  kv_hit_rate=91.6%
+  conv=0 turn=10 turn_10  ttft=0.1704s  phys_tokens=10619  kv_hits=9152/10619  kv_hit_rate=86.2%
+
+Results appended to agentcache_compression/results/tier1/syn64_r3.jsonl
+Stopping vllm serve...
+### END syn64_r3 04:01:34
+### START syn128_r3 04:01:34
+
+=== mode=synthetic  N=128  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0243s  phys_tokens=248  kv_hits=0/248  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0510s  phys_tokens=934  kv_hits=240/934  kv_hit_rate=25.7%
+  conv=0 turn=3 turn_3  ttft=0.0830s  phys_tokens=1835  kv_hits=928/1835  kv_hit_rate=50.6%
+  conv=0 turn=4 turn_4  ttft=0.1263s  phys_tokens=2913  kv_hits=1824/2913  kv_hit_rate=62.6%
+  conv=0 turn=5 turn_5  ttft=0.1304s  phys_tokens=4278  kv_hits=2912/4278  kv_hit_rate=68.1%
+  conv=0 turn=6 turn_6  ttft=0.1404s  phys_tokens=5530  kv_hits=4272/5530  kv_hit_rate=77.3%
+  conv=0 turn=7 turn_7  ttft=0.1419s  phys_tokens=6842  kv_hits=5520/6842  kv_hit_rate=80.7%
+  conv=0 turn=8 turn_8  ttft=0.1340s  phys_tokens=7805  kv_hits=6832/7805  kv_hit_rate=87.5%
+  conv=0 turn=9 turn_9  ttft=0.1263s  phys_tokens=8293  kv_hits=7792/8293  kv_hit_rate=94.0%
+  conv=0 turn=10 turn_10  ttft=0.1614s  phys_tokens=9891  kv_hits=8288/9891  kv_hit_rate=83.8%
+
+Results appended to agentcache_compression/results/tier1/syn128_r3.jsonl
+Stopping vllm serve...
+### END syn128_r3 04:03:56
+### START syn256_r3 04:03:56
+
+=== mode=synthetic  N=256  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0201s  phys_tokens=376  kv_hits=0/376  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0453s  phys_tokens=1090  kv_hits=368/1090  kv_hit_rate=33.8%
+  conv=0 turn=3 turn_3  ttft=0.0929s  phys_tokens=2250  kv_hits=1088/2250  kv_hit_rate=48.4%
+  conv=0 turn=4 turn_4  ttft=0.1092s  phys_tokens=3674  kv_hits=2240/3674  kv_hit_rate=61.0%
+  conv=0 turn=5 turn_5  ttft=0.1429s  phys_tokens=4953  kv_hits=3664/4953  kv_hit_rate=74.0%
+  conv=0 turn=6 turn_6  ttft=0.1320s  phys_tokens=6230  kv_hits=4944/6230  kv_hit_rate=79.4%
+  conv=0 turn=7 turn_7  ttft=0.1504s  phys_tokens=7572  kv_hits=6224/7572  kv_hit_rate=82.2%
+  conv=0 turn=8 turn_8  ttft=0.1640s  phys_tokens=8871  kv_hits=7568/8871  kv_hit_rate=85.3%
+  conv=0 turn=9 turn_9  ttft=0.1882s  phys_tokens=10985  kv_hits=8864/10985  kv_hit_rate=80.7%
+  conv=0 turn=10 turn_10  ttft=0.1989s  phys_tokens=12455  kv_hits=10976/12455  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/tier1/syn256_r3.jsonl
+Stopping vllm serve...
+### END syn256_r3 04:06:21
+### START syn64_r4 04:06:21
+
+=== mode=synthetic  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0228s  phys_tokens=184  kv_hits=0/184  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0465s  phys_tokens=901  kv_hits=176/901  kv_hit_rate=19.5%
+  conv=0 turn=3 turn_3  ttft=0.1218s  phys_tokens=1954  kv_hits=896/1954  kv_hit_rate=45.9%
+  conv=0 turn=4 turn_4  ttft=0.1218s  phys_tokens=3013  kv_hits=1952/3013  kv_hit_rate=64.8%
+  conv=0 turn=5 turn_5  ttft=0.1365s  phys_tokens=4285  kv_hits=3008/4285  kv_hit_rate=70.2%
+  conv=0 turn=6 turn_6  ttft=0.1379s  phys_tokens=5587  kv_hits=4272/5587  kv_hit_rate=76.5%
+  conv=0 turn=7 turn_7  ttft=0.1510s  phys_tokens=7017  kv_hits=5584/7017  kv_hit_rate=79.6%
+  conv=0 turn=8 turn_8  ttft=0.1691s  phys_tokens=8390  kv_hits=7008/8390  kv_hit_rate=83.5%
+  conv=0 turn=9 turn_9  ttft=0.1796s  phys_tokens=9151  kv_hits=8384/9151  kv_hit_rate=91.6%
+  conv=0 turn=10 turn_10  ttft=0.1839s  phys_tokens=10619  kv_hits=9152/10619  kv_hit_rate=86.2%
+
+Results appended to agentcache_compression/results/tier1/syn64_r4.jsonl
+Stopping vllm serve...
+### END syn64_r4 04:08:42
+### START syn128_r4 04:08:42
+
+=== mode=synthetic  N=128  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0261s  phys_tokens=248  kv_hits=0/248  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0508s  phys_tokens=934  kv_hits=240/934  kv_hit_rate=25.7%
+  conv=0 turn=3 turn_3  ttft=0.0845s  phys_tokens=1835  kv_hits=928/1835  kv_hit_rate=50.6%
+  conv=0 turn=4 turn_4  ttft=0.1284s  phys_tokens=2913  kv_hits=1824/2913  kv_hit_rate=62.6%
+  conv=0 turn=5 turn_5  ttft=0.1459s  phys_tokens=4278  kv_hits=2912/4278  kv_hit_rate=68.1%
+  conv=0 turn=6 turn_6  ttft=0.1412s  phys_tokens=5530  kv_hits=4272/5530  kv_hit_rate=77.3%
+  conv=0 turn=7 turn_7  ttft=0.1443s  phys_tokens=6842  kv_hits=5520/6842  kv_hit_rate=80.7%
+  conv=0 turn=8 turn_8  ttft=0.1319s  phys_tokens=7805  kv_hits=6832/7805  kv_hit_rate=87.5%
+  conv=0 turn=9 turn_9  ttft=0.1255s  phys_tokens=8293  kv_hits=7792/8293  kv_hit_rate=94.0%
+  conv=0 turn=10 turn_10  ttft=0.1781s  phys_tokens=9891  kv_hits=8288/9891  kv_hit_rate=83.8%
+
+Results appended to agentcache_compression/results/tier1/syn128_r4.jsonl
+Stopping vllm serve...
+### END syn128_r4 04:11:04
+### START syn256_r4 04:11:04
+
+=== mode=synthetic  N=256  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0246s  phys_tokens=376  kv_hits=0/376  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0484s  phys_tokens=1090  kv_hits=368/1090  kv_hit_rate=33.8%
+  conv=0 turn=3 turn_3  ttft=0.1287s  phys_tokens=2250  kv_hits=1088/2250  kv_hit_rate=48.4%
+  conv=0 turn=4 turn_4  ttft=0.1276s  phys_tokens=3674  kv_hits=2240/3674  kv_hit_rate=61.0%
+  conv=0 turn=5 turn_5  ttft=0.1409s  phys_tokens=4953  kv_hits=3664/4953  kv_hit_rate=74.0%
+  conv=0 turn=6 turn_6  ttft=0.1371s  phys_tokens=6230  kv_hits=4944/6230  kv_hit_rate=79.4%
+  conv=0 turn=7 turn_7  ttft=0.1615s  phys_tokens=7572  kv_hits=6224/7572  kv_hit_rate=82.2%
+  conv=0 turn=8 turn_8  ttft=0.1631s  phys_tokens=8871  kv_hits=7568/8871  kv_hit_rate=85.3%
+  conv=0 turn=9 turn_9  ttft=0.1937s  phys_tokens=10985  kv_hits=8864/10985  kv_hit_rate=80.7%
+  conv=0 turn=10 turn_10  ttft=0.2095s  phys_tokens=12455  kv_hits=10976/12455  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/tier1/syn256_r4.jsonl
+Stopping vllm serve...
+### END syn256_r4 04:13:29
+### START cold_r0 04:13:29
+
+=== mode=cold  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.1182s  phys_tokens=2299  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.1555s  phys_tokens=2983  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=3 turn_3  ttft=0.1741s  phys_tokens=3886  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=4 turn_4  ttft=0.1943s  phys_tokens=4997  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=5 turn_5  ttft=0.2127s  phys_tokens=6377  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=6 turn_6  ttft=0.2530s  phys_tokens=7942  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=7 turn_7  ttft=0.3039s  phys_tokens=9461  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=8 turn_8  ttft=0.3167s  phys_tokens=11147  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=9 turn_9  ttft=0.3345s  phys_tokens=11917  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=10 turn_10  ttft=0.3908s  phys_tokens=13597  kv_hits=0/0  kv_hit_rate=0.0%
+
+Results appended to agentcache_compression/results/tier1/coldchk_r0.jsonl
+Stopping vllm serve...
+### END cold_r0 04:15:33
+### START cold_r1 04:15:33
+
+=== mode=cold  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.1263s  phys_tokens=2299  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.1753s  phys_tokens=2983  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=3 turn_3  ttft=0.1917s  phys_tokens=3886  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=4 turn_4  ttft=0.2011s  phys_tokens=4997  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=5 turn_5  ttft=0.1996s  phys_tokens=6377  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=6 turn_6  ttft=0.2435s  phys_tokens=7942  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=7 turn_7  ttft=0.2837s  phys_tokens=9461  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=8 turn_8  ttft=0.3323s  phys_tokens=11147  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=9 turn_9  ttft=0.3398s  phys_tokens=11917  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=10 turn_10  ttft=0.3951s  phys_tokens=13597  kv_hits=0/0  kv_hit_rate=0.0%
+
+Results appended to agentcache_compression/results/tier1/coldchk_r1.jsonl
+Stopping vllm serve...
+### END cold_r1 04:17:36
+### ALL_DONE 04:17:36

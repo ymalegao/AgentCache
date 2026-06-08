@@ -1,0 +1,23 @@
+### SMOKE synthetic N=256 03:33:45
+
+=== mode=synthetic  N=256  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0235s  phys_tokens=376  kv_hits=0/376  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0522s  phys_tokens=1090  kv_hits=368/1090  kv_hit_rate=33.8%
+  conv=0 turn=3 turn_3  ttft=0.5971s  phys_tokens=2250  kv_hits=1088/2250  kv_hit_rate=48.4%
+  conv=0 turn=4 turn_4  ttft=0.1348s  phys_tokens=3674  kv_hits=2240/3674  kv_hit_rate=61.0%
+  conv=0 turn=5 turn_5  ttft=0.1446s  phys_tokens=4953  kv_hits=3664/4953  kv_hit_rate=74.0%
+  conv=0 turn=6 turn_6  ttft=0.1474s  phys_tokens=6230  kv_hits=4944/6230  kv_hit_rate=79.4%
+  conv=0 turn=7 turn_7  ttft=0.6249s  phys_tokens=7572  kv_hits=6224/7572  kv_hit_rate=82.2%
+  conv=0 turn=8 turn_8  ttft=0.1749s  phys_tokens=8871  kv_hits=7568/8871  kv_hit_rate=85.3%
+  conv=0 turn=9 turn_9  ttft=0.1988s  phys_tokens=10985  kv_hits=8864/10985  kv_hit_rate=80.7%
+  conv=0 turn=10 turn_10  ttft=0.6962s  phys_tokens=12455  kv_hits=10976/12455  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/tier1/smoke_syn256.jsonl
+Stopping vllm serve...
+### SMOKE_OK 03:36:12

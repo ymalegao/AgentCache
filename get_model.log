@@ -1,0 +1,6 @@
+Downloading openai/gpt-oss-20b -> models/gpt-oss-20b
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+path=/root/AgentCache/models/gpt-oss-20b
+
+Model saved to: /root/AgentCache/models/gpt-oss-20b
+Use with: --model /root/AgentCache/models/gpt-oss-20b

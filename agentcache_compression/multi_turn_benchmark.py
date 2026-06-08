@@ -122,6 +122,11 @@ def build_server_cmd(args: argparse.Namespace, enable_apc: bool) -> list[str]:
     ]
     if enable_apc:
         cmd.append("--enable-prefix-caching")
+    else:
+        # True cold baseline: vLLM V1 enables prefix caching by DEFAULT, so simply
+        # omitting --enable-prefix-caching does NOT give a no-cache baseline. Disable
+        # it explicitly so cold mode pays a full prefill on every turn.
+        cmd.append("--no-enable-prefix-caching")
     return cmd
 
 
@@ -259,14 +264,20 @@ def generate_turn_output(
     effective = min(max_tokens, max_model_len - prompt_tokens - 64)
     if effective <= 0:
         return ""
+    # Sampling for the *generated* response only (the TTFT-measurement calls in
+    # measure_turn_ttft_and_cached stay greedy/max_tokens=1 — methodology unchanged).
+    # Greedy (temperature=0) makes GPT-OSS loop in the analysis channel and never
+    # reach the final channel; temp/top_p with a fixed seed breaks the loops while
+    # staying reproducible.
+    gen_kwargs = dict(max_tokens=effective, temperature=0.7, top_p=0.9, seed=0)
     if _is_messages(prompt_input):
         resp = client.chat.completions.create(
-            model=model, messages=prompt_input, max_tokens=effective, temperature=0.0
+            model=model, messages=prompt_input, **gen_kwargs
         )
         return resp.choices[0].message.content or ""
     else:
         resp = client.completions.create(
-            model=model, prompt=prompt_input, max_tokens=effective, temperature=0.0
+            model=model, prompt=prompt_input, **gen_kwargs
         )
         return resp.choices[0].text or ""
 
@@ -371,6 +382,20 @@ def main() -> None:
 
         out_path = Path(args.out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Warm up the engine so the FIRST measured turn reflects steady-state prefill
+        # rather than one-time torch.compile / CUDA-graph capture. The warmup prompt is
+        # generic (~2k tokens) so it exercises the large-prefill path but does NOT match
+        # any conversation prefix, so it cannot pre-populate APC for warm mode.
+        try:
+            warmup_prompt = ("This is a warmup request used to trigger kernel "
+                             "compilation and CUDA graph capture before timing. ") * 150
+            client.completions.create(
+                model=args.model, prompt=warmup_prompt, max_tokens=16, temperature=0.0,
+            )
+            print("Warmup request done.\n")
+        except Exception as e:  # noqa: BLE001
+            print(f"Warmup request failed (continuing): {e}\n")
 
         with open(out_path, "a") as fout:
             for conv_id, conv_tasks in enumerate(conversations):

@@ -1,0 +1,43 @@
+### START cold 01:39:19
+
+=== mode=cold  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+  conv=0 turn=1 turn_1  ttft=0.3361s  phys_tokens=2299  kv_hits=0/2299  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0769s  phys_tokens=3075  kv_hits=2288/3075  kv_hit_rate=74.4%
+  conv=0 turn=3 turn_3  ttft=0.0991s  phys_tokens=4055  kv_hits=3072/4055  kv_hit_rate=75.8%
+  conv=0 turn=4 turn_4  ttft=0.6744s  phys_tokens=5278  kv_hits=4048/5278  kv_hit_rate=76.7%
+  conv=0 turn=5 turn_5  ttft=1.1690s  phys_tokens=6676  kv_hits=5264/6676  kv_hit_rate=78.8%
+  conv=0 turn=6 turn_6  ttft=0.6947s  phys_tokens=8194  kv_hits=6672/8194  kv_hit_rate=81.4%
+  conv=0 turn=7 turn_7  ttft=0.3065s  phys_tokens=9697  kv_hits=8192/9697  kv_hit_rate=84.5%
+  conv=0 turn=8 turn_8  ttft=0.7117s  phys_tokens=11473  kv_hits=9696/11473  kv_hit_rate=84.5%
+  conv=0 turn=9 turn_9  ttft=0.1825s  phys_tokens=12301  kv_hits=11472/12301  kv_hit_rate=93.3%
+  conv=0 turn=10 turn_10  ttft=0.7377s  phys_tokens=13955  kv_hits=12288/13955  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/gptoss_clean2.jsonl
+Stopping vllm serve...
+### END cold 01:41:28
+### START warm_apc 01:41:28
+
+=== mode=warm_apc  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+  conv=0 turn=1 turn_1  ttft=0.3339s  phys_tokens=2299  kv_hits=0/2299  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0775s  phys_tokens=3075  kv_hits=2288/3075  kv_hit_rate=74.4%
+  conv=0 turn=3 turn_3  ttft=0.0983s  phys_tokens=4055  kv_hits=3072/4055  kv_hit_rate=75.8%
+  conv=0 turn=4 turn_4  ttft=0.1853s  phys_tokens=5278  kv_hits=4048/5278  kv_hit_rate=76.7%
+  conv=0 turn=5 turn_5  ttft=0.1988s  phys_tokens=6676  kv_hits=5264/6676  kv_hit_rate=78.8%
+  conv=0 turn=6 turn_6  ttft=0.2074s  phys_tokens=8194  kv_hits=6672/8194  kv_hit_rate=81.4%
+  conv=0 turn=7 turn_7  ttft=0.2364s  phys_tokens=9697  kv_hits=8192/9697  kv_hit_rate=84.5%
+  conv=0 turn=8 turn_8  ttft=0.2460s  phys_tokens=11473  kv_hits=9696/11473  kv_hit_rate=84.5%
+  conv=0 turn=9 turn_9  ttft=0.1875s  phys_tokens=12301  kv_hits=11472/12301  kv_hit_rate=93.3%
+  conv=0 turn=10 turn_10  ttft=0.2921s  phys_tokens=13955  kv_hits=12288/13955  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/gptoss_clean2.jsonl
+Stopping vllm serve...
+### END warm_apc 01:43:32
+### ALL_DONE 01:43:32

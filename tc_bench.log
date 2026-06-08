@@ -1,0 +1,231 @@
+### START cold r0 02:01:13
+
+=== mode=cold  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.1240s  phys_tokens=2299  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.7201s  phys_tokens=2983  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=3 turn_3  ttft=0.6671s  phys_tokens=3886  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=4 turn_4  ttft=0.6657s  phys_tokens=4997  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=5 turn_5  ttft=0.6787s  phys_tokens=6377  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=6 turn_6  ttft=0.7178s  phys_tokens=7942  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=7 turn_7  ttft=0.7531s  phys_tokens=9461  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=8 turn_8  ttft=0.7223s  phys_tokens=11147  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=9 turn_9  ttft=0.7743s  phys_tokens=11917  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=10 turn_10  ttft=0.8408s  phys_tokens=13597  kv_hits=0/0  kv_hit_rate=0.0%
+
+Results appended to agentcache_compression/results/tc/cold_r0.jsonl
+Stopping vllm serve...
+### END cold r0 02:03:21
+### START cold r1 02:03:21
+
+=== mode=cold  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.0855s  phys_tokens=2299  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.1597s  phys_tokens=2983  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=3 turn_3  ttft=0.1596s  phys_tokens=3886  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=4 turn_4  ttft=0.1746s  phys_tokens=4997  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=5 turn_5  ttft=0.2061s  phys_tokens=6377  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=6 turn_6  ttft=0.2501s  phys_tokens=7942  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=7 turn_7  ttft=0.3049s  phys_tokens=9461  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=8 turn_8  ttft=0.3310s  phys_tokens=11147  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=9 turn_9  ttft=0.3564s  phys_tokens=11917  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=10 turn_10  ttft=0.3961s  phys_tokens=13597  kv_hits=0/0  kv_hit_rate=0.0%
+
+Results appended to agentcache_compression/results/tc/cold_r1.jsonl
+Stopping vllm serve...
+### END cold r1 02:05:24
+### START cold r2 02:05:24
+
+=== mode=cold  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.1150s  phys_tokens=2299  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.1594s  phys_tokens=2983  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=3 turn_3  ttft=0.1744s  phys_tokens=3886  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=4 turn_4  ttft=0.1991s  phys_tokens=4997  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=5 turn_5  ttft=0.2035s  phys_tokens=6377  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=6 turn_6  ttft=0.2367s  phys_tokens=7942  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=7 turn_7  ttft=0.3036s  phys_tokens=9461  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=8 turn_8  ttft=0.3298s  phys_tokens=11147  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=9 turn_9  ttft=0.3435s  phys_tokens=11917  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=10 turn_10  ttft=0.3749s  phys_tokens=13597  kv_hits=0/0  kv_hit_rate=0.0%
+
+Results appended to agentcache_compression/results/tc/cold_r2.jsonl
+Stopping vllm serve...
+### END cold r2 02:07:30
+### START cold r3 02:07:30
+
+=== mode=cold  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.1201s  phys_tokens=2299  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.1668s  phys_tokens=2983  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=3 turn_3  ttft=0.1744s  phys_tokens=3886  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=4 turn_4  ttft=0.1950s  phys_tokens=4997  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=5 turn_5  ttft=0.2087s  phys_tokens=6377  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=6 turn_6  ttft=0.2374s  phys_tokens=7942  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=7 turn_7  ttft=0.3033s  phys_tokens=9461  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=8 turn_8  ttft=0.3147s  phys_tokens=11147  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=9 turn_9  ttft=0.3395s  phys_tokens=11917  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=10 turn_10  ttft=0.3861s  phys_tokens=13597  kv_hits=0/0  kv_hit_rate=0.0%
+
+Results appended to agentcache_compression/results/tc/cold_r3.jsonl
+Stopping vllm serve...
+### END cold r3 02:09:33
+### START cold r4 02:09:33
+
+=== mode=cold  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.1211s  phys_tokens=2299  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.1670s  phys_tokens=2983  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=3 turn_3  ttft=0.1953s  phys_tokens=3886  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=4 turn_4  ttft=0.1942s  phys_tokens=4997  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=5 turn_5  ttft=0.2102s  phys_tokens=6377  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=6 turn_6  ttft=0.2374s  phys_tokens=7942  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=7 turn_7  ttft=0.3078s  phys_tokens=9461  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=8 turn_8  ttft=0.3244s  phys_tokens=11147  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=9 turn_9  ttft=0.3495s  phys_tokens=11917  kv_hits=0/0  kv_hit_rate=0.0%
+  conv=0 turn=10 turn_10  ttft=0.4039s  phys_tokens=13597  kv_hits=0/0  kv_hit_rate=0.0%
+
+Results appended to agentcache_compression/results/tc/cold_r4.jsonl
+Stopping vllm serve...
+### END cold r4 02:11:36
+### START warm_apc r0 02:11:36
+
+=== mode=warm_apc  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.1266s  phys_tokens=2299  kv_hits=0/2299  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0728s  phys_tokens=3075  kv_hits=2288/3075  kv_hit_rate=74.4%
+  conv=0 turn=3 turn_3  ttft=0.1023s  phys_tokens=4055  kv_hits=3072/4055  kv_hit_rate=75.8%
+  conv=0 turn=4 turn_4  ttft=0.2073s  phys_tokens=5278  kv_hits=4048/5278  kv_hit_rate=76.7%
+  conv=0 turn=5 turn_5  ttft=0.1853s  phys_tokens=6676  kv_hits=5264/6676  kv_hit_rate=78.8%
+  conv=0 turn=6 turn_6  ttft=0.2078s  phys_tokens=8194  kv_hits=6672/8194  kv_hit_rate=81.4%
+  conv=0 turn=7 turn_7  ttft=0.2173s  phys_tokens=9697  kv_hits=8192/9697  kv_hit_rate=84.5%
+  conv=0 turn=8 turn_8  ttft=0.2490s  phys_tokens=11473  kv_hits=9696/11473  kv_hit_rate=84.5%
+  conv=0 turn=9 turn_9  ttft=0.1927s  phys_tokens=12301  kv_hits=11472/12301  kv_hit_rate=93.3%
+  conv=0 turn=10 turn_10  ttft=0.2758s  phys_tokens=13955  kv_hits=12288/13955  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/tc/warm_apc_r0.jsonl
+Stopping vllm serve...
+### END warm_apc r0 02:13:40
+### START warm_apc r1 02:13:40
+
+=== mode=warm_apc  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.1163s  phys_tokens=2299  kv_hits=0/2299  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0927s  phys_tokens=3075  kv_hits=2288/3075  kv_hit_rate=74.4%
+  conv=0 turn=3 turn_3  ttft=0.1101s  phys_tokens=4055  kv_hits=3072/4055  kv_hit_rate=75.8%
+  conv=0 turn=4 turn_4  ttft=0.1878s  phys_tokens=5278  kv_hits=4048/5278  kv_hit_rate=76.7%
+  conv=0 turn=5 turn_5  ttft=0.1970s  phys_tokens=6676  kv_hits=5264/6676  kv_hit_rate=78.8%
+  conv=0 turn=6 turn_6  ttft=0.2068s  phys_tokens=8194  kv_hits=6672/8194  kv_hit_rate=81.4%
+  conv=0 turn=7 turn_7  ttft=0.2237s  phys_tokens=9697  kv_hits=8192/9697  kv_hit_rate=84.5%
+  conv=0 turn=8 turn_8  ttft=0.2694s  phys_tokens=11473  kv_hits=9696/11473  kv_hit_rate=84.5%
+  conv=0 turn=9 turn_9  ttft=0.1865s  phys_tokens=12301  kv_hits=11472/12301  kv_hit_rate=93.3%
+  conv=0 turn=10 turn_10  ttft=0.2785s  phys_tokens=13955  kv_hits=12288/13955  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/tc/warm_apc_r1.jsonl
+Stopping vllm serve...
+### END warm_apc r1 02:15:45
+### START warm_apc r2 02:15:45
+
+=== mode=warm_apc  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.1134s  phys_tokens=2299  kv_hits=0/2299  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0778s  phys_tokens=3075  kv_hits=2288/3075  kv_hit_rate=74.4%
+  conv=0 turn=3 turn_3  ttft=0.1013s  phys_tokens=4055  kv_hits=3072/4055  kv_hit_rate=75.8%
+  conv=0 turn=4 turn_4  ttft=0.1773s  phys_tokens=5278  kv_hits=4048/5278  kv_hit_rate=76.7%
+  conv=0 turn=5 turn_5  ttft=0.1452s  phys_tokens=6676  kv_hits=5264/6676  kv_hit_rate=78.8%
+  conv=0 turn=6 turn_6  ttft=0.2012s  phys_tokens=8194  kv_hits=6672/8194  kv_hit_rate=81.4%
+  conv=0 turn=7 turn_7  ttft=0.2078s  phys_tokens=9697  kv_hits=8192/9697  kv_hit_rate=84.5%
+  conv=0 turn=8 turn_8  ttft=0.2325s  phys_tokens=11473  kv_hits=9696/11473  kv_hit_rate=84.5%
+  conv=0 turn=9 turn_9  ttft=0.1790s  phys_tokens=12301  kv_hits=11472/12301  kv_hit_rate=93.3%
+  conv=0 turn=10 turn_10  ttft=0.2670s  phys_tokens=13955  kv_hits=12288/13955  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/tc/warm_apc_r2.jsonl
+Stopping vllm serve...
+### END warm_apc r2 02:17:49
+### START warm_apc r3 02:17:49
+
+=== mode=warm_apc  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.1161s  phys_tokens=2299  kv_hits=0/2299  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0810s  phys_tokens=3075  kv_hits=2288/3075  kv_hit_rate=74.4%
+  conv=0 turn=3 turn_3  ttft=0.0982s  phys_tokens=4055  kv_hits=3072/4055  kv_hit_rate=75.8%
+  conv=0 turn=4 turn_4  ttft=0.1815s  phys_tokens=5278  kv_hits=4048/5278  kv_hit_rate=76.7%
+  conv=0 turn=5 turn_5  ttft=0.2129s  phys_tokens=6676  kv_hits=5264/6676  kv_hit_rate=78.8%
+  conv=0 turn=6 turn_6  ttft=0.2183s  phys_tokens=8194  kv_hits=6672/8194  kv_hit_rate=81.4%
+  conv=0 turn=7 turn_7  ttft=0.2122s  phys_tokens=9697  kv_hits=8192/9697  kv_hit_rate=84.5%
+  conv=0 turn=8 turn_8  ttft=0.2382s  phys_tokens=11473  kv_hits=9696/11473  kv_hit_rate=84.5%
+  conv=0 turn=9 turn_9  ttft=0.1771s  phys_tokens=12301  kv_hits=11472/12301  kv_hit_rate=93.3%
+  conv=0 turn=10 turn_10  ttft=0.2729s  phys_tokens=13955  kv_hits=12288/13955  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/tc/warm_apc_r3.jsonl
+Stopping vllm serve...
+### END warm_apc r3 02:19:53
+### START warm_apc r4 02:19:53
+
+=== mode=warm_apc  N=64  convs=1  turns_per_conv=10 ===
+
+Starting vllm serve on port 8000...
+Server ready.
+
+Warmup request done.
+
+  conv=0 turn=1 turn_1  ttft=0.1155s  phys_tokens=2299  kv_hits=0/2299  kv_hit_rate=0.0%
+  conv=0 turn=2 turn_2  ttft=0.0827s  phys_tokens=3075  kv_hits=2288/3075  kv_hit_rate=74.4%
+  conv=0 turn=3 turn_3  ttft=0.1011s  phys_tokens=4055  kv_hits=3072/4055  kv_hit_rate=75.8%
+  conv=0 turn=4 turn_4  ttft=0.1782s  phys_tokens=5278  kv_hits=4048/5278  kv_hit_rate=76.7%
+  conv=0 turn=5 turn_5  ttft=0.1630s  phys_tokens=6676  kv_hits=5264/6676  kv_hit_rate=78.8%
+  conv=0 turn=6 turn_6  ttft=0.2024s  phys_tokens=8194  kv_hits=6672/8194  kv_hit_rate=81.4%
+  conv=0 turn=7 turn_7  ttft=0.1786s  phys_tokens=9697  kv_hits=8192/9697  kv_hit_rate=84.5%
+  conv=0 turn=8 turn_8  ttft=0.2306s  phys_tokens=11473  kv_hits=9696/11473  kv_hit_rate=84.5%
+  conv=0 turn=9 turn_9  ttft=0.1811s  phys_tokens=12301  kv_hits=11472/12301  kv_hit_rate=93.3%
+  conv=0 turn=10 turn_10  ttft=0.2680s  phys_tokens=13955  kv_hits=12288/13955  kv_hit_rate=88.1%
+
+Results appended to agentcache_compression/results/tc/warm_apc_r4.jsonl
+Stopping vllm serve...
+### END warm_apc r4 02:21:57
+### ALL_DONE 02:21:57
