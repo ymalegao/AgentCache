@@ -1,0 +1,167 @@
+% TEMPLATE for Usenix papers, specifically to meet requirements of
+%  USENIX '05
+% originally a template for producing IEEE-format articles using LaTeX.
+%   written by Matthew Ward, CS Department, Worcester Polytechnic Institute.
+% adapted by David Beazley for his excellent SWIG paper in Proceedings,
+%   Tcl 96
+% turned into a smartass generic template by De Clarke, with thanks to
+%   both the above pioneers
+% use at your own risk.  Complaints to /dev/null.
+% make it two column with no page numbering, default is 10 point
+
+% Munged by Fred Douglis <douglis@research.att.com> 10/97 to separate
+% the .sty file from the LaTeX source template, so that people can
+% more easily include the .sty file into an existing document.  Also
+% changed to more closely follow the style guidelines as represented
+% by the Word sample file. 
+
+% Note that since 2010, USENIX does not require endnotes. If you want
+% foot of page notes, don't include the endnotes package in the 
+% usepackage command, below.
+
+\documentclass[letterpaper,twocolumn,10pt]{article}
+\usepackage{usenix,epsfig,endnotes,graphicx}
+\begin{document}
+
+%don't want date printed
+\date{}
+
+%make title bold and 14 pt font (Latex default is non-bold, 16 pt)
+\title{\Large \bf AgentCache}
+
+\author{
+{\rm Manav Patel}\\
+UC Santa Cruz
+\and
+{\rm Yash Malegaonkar}\\
+UC Santa Cruz
+\and
+{\rm Danyal Khan}\\
+UC Santa Cruz
+}
+
+\maketitle
+
+% Use the following at camera-ready time to suppress page numbers.
+% Comment it out when you first submit the paper for review.
+\thispagestyle{empty}
+
+
+\subsection*{Abstract}
+Your Abstract Text Goes Here.  Just a few facts.
+Whet our appetites.
+
+\section{Introduction}
+As Large Language Models become more powerful, there has been an adoption and value of LLM agentic systems which give the LLM capabilities to perform and take actions. In modern agentic systems, there can be multiple agents in a system each with an individual responsibiltiy and dedicated LLM. There is a continued effort to further explore how to improve the efficiency and minimize the overhead of these agentic systems as they scale and get deployed into product.
+
+One common bottleneck is the LLM generation process when it generates a text. In a transformer model, the system has to perform attention computations which create intermediate results called Key and Value tensors across all tokens it has seen currently. This is computationally expensive as every new token requires reprocessing all Key and Value tensors of previous computations. To prevent this, solutions like KVCache store the intermediate KV tensors for each transformer layer in memory which helps make it more efficient to produce an output.
+
+However, since GPU memory is finite, in a multi agent system where each agent has its own LLM and KVCache, agents that exceed GPU memory would have to force KV tensor eviction to make space for the running agent's KVCache. If we evict the KV tensors from GPU memory for an agent, we would have to reprocess the entire input for that specific agent which would require a full pre-fill. There are current solutions that help to minimize the overhead of repeated prefilling for warm requests like vLLM's Automatic Prefix Caching and LMCache. However, both these solutions requre at least one prior completed rqeuest before any reuse. As a result, this means the KVCache cannot be empty in order for vLLM's Automatic Prefix Caching or LMCache to be effective. Both these solutions don't offer an efficient way to reduce the computation cost of KV tensors on the first request or cold start. In the first request, the KVCache will be empty and as a result has no KV tensors which can be reused. In this project, we aim to ask if we can warm-intialize KV state at cold-start before there is any computation.
+
+To solve this problem, we create AgentCache, which solved the cold-start latency problem by warm-initializing the KV cache before computation begins. Instead of building the exact KV state for a specific system prompt, AgentCache learns a compressed approximation of the state offline. The learned representation is called the centroid which is a Key-Value tensor artifact that encodes attention geometry associated with a given type of agent like a coding agent or search agent. This artifcat is built one time during prefix tuning stage and is later loaded into vLLM and injected into the GPU KV cache at the begining of each request. The goal with this is that it will removee the system-prompt prefill cost for a cold-start request. By reducing the cold-start request, the solution will reduce the time-to-first-token(TTFT) for the first request given to the LLM.
+
+Looking at our experiments, AgentCache showed that warm-initializing the KV cache with learned centroid will help to reduce the cold-start TTFT(time-to-first-token). On the multi-turn benchmark on an NVIDIA Blackwell GPU, the Centroid approach had approxmately a 0.9x speedup over cold baseline for Qwen-1B, a 1.49x speedup for Qwen-7B, and a 1.80x speedup for GPT-20B. In the combined LMCache+Centroid benchmark using a T4 GPU, the centroid system along had a 2.05x speedup over the cold baseline for the cold-cache condition. Additionally, the model quality in the LMCache+Centroid benchmark was preserved for all conditions with a ROUGE-L score of 1.0 where the temperature was set to 0.
+
+
+\section{Problem}
+In modern LLM-powered agentic systems, multiple agents can run at the same time where each agent has its own LLM model with a unique system prompt and conversation history. However with multiple agents, there will be a unique KV Cache stored in GPU memory which can create a memory overhead.
+
+When GPU memory is full, the system will remove KV tensors for idle agents to make space for the KV tensor computations for the running agents. However, during reactivation, the evicted agent has to run a full prefill and reprocess its entire input from scratch. This can be expensive and as a result increase the Time-to-First-Token(TTFT). A higher TTFT can as a result further degrade the overall latency of the system.
+
+An instance where TTFT is naturally high is during cold-start. The cold-start occurs on the first request an agent receives where the KV cache is empty as there is no previously computed tensors. During the first request, agents have to perform a full prefill cost of its system prompt. In modern agentic systems, system prompts can be thousands of tokens and as a result, their prefill costs may dominate TTFT for the first request. In a multi-agent setting where agents may get launched, evicted, or restarted, the cold-start latency can compound and become a major latency overhead for the entire system.
+
+\section{Previous Solutions}
+There have been various systems that help to solve KVCache reuse like vLLM's Automatic Prefix Caching(APC) and LMCache.
+
+In vLLM \cite{kwon2023efficientmemorymanagementlarge}, Automatic Prefix Caching, there is a hash-indexed cache of KV blocks on the GPU. When a new request is made and has a prefix that matches a previously computed sequence, vLLM will reuse the KV blocks instead of recomputing them. This helps remove redundant prefill for warm requests. However, vLLM APC requires at least one completed request to have populated the cache for solution to be effective. On the first request, the cache is empty and APC provides no benefit.
+
+LMCache \cite{liu2025lmcacheefficientkvcache} helps extend vLLM's APC by offloading KV tensors to CPU memory or disk. This allows KV tensor reuse across vLLM restarts and accross a larger KV cache set that has a greater size than the current available space in the GPU. Similar to APC, LMCache is valuable at warm-cache reuse but is not effective to solve the cold-start problem of reducing TTFT on the first request of an agent. Here we can see that both types of systems expect at least on request to have already been computed and its KV tensors to be stored in KV cache.
+
+APC and LMCache are not able to solve the issue of the first request that has a full prefill cost. In a multi-agent envirnment where agents are frequently getting initialized and evicted, there may be a frequent number of cold starts for each agent. Our solution AgentCache aims to solve the cold-start problem that APC and LMCache is not able to address by improving the TTFT for the first request when KV Cache is empty.
+
+\section{AgentCache}
+
+\section{System Design}
+
+\section{Evaluation}
+\subsection{Standalone AgentCache Evaluation}
+
+\subsubsection{Single-Agent Prompt-Length Sensitivity}
+\subsubsection{Multi-Turn Conversation Benchmark}
+
+\subsection{Ablations and Output Fidelity}
+
+
+\subsection{LMCache+Centroid}
+The multi-turn benchmark showed that centroid injection on its own can reduce cold-start TTFT. However, in a real production system, we might use both a centroid and a persistent KV cache solution like LMCache together rather than choosing one or the other. As a result, we aim to see if the centroid can be integrated with other solutions like LMCache to improve the overall performance of the system. The LMCache and Centroid benchmark was designed to tests four combinations which are cold-baseline using only vLLM, LMCache only, Centroid only, and LMCache+Centroid combined implementation.
+
+\subsubsection{Implementation}
+\begin{figure*}[h]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Per-Request Centroid Routing.png}
+    \caption{System Architecture describing the process of choosing the centroid for each agent based on input question to LLM system.}
+    \label{Per-Request Centroid Routing.png}
+\end{figure*}
+\begin{figure*}[h]
+    \centering
+    \includegraphics[width=0.8\textwidth]{Combined Implementation.png}
+    \caption{Visualization of how Centroid+LMCache is integrated in the combined solution. The centroid covers the first 256 positions and LMCache covers the remainig system prompt tokens.}
+    \label{Combined Implementation.png}
+\end{figure*}
+To simulate a realistic multi-agent workload, the benchmark runs two different agent types simultaneously. The first is a coding agent that receives Python engineering questions and operates under a detailed system prompt covering code quality, testing, and security rules. The second is a search agent that receives general knowledge questions and operates under a research-focused system prompt covering sourcing, verification, and citation. Ten unique queries were created for each agent type, giving twenty total queries per round. These queries are interleaved so the benchmark alternates between a coding request and a search request in every step.
+
+The benchmark runs two rounds over all twenty queries. The first round represents a cold session where neither LMCache nor vLLM's in-session prefix cache has any stored KV tensors from a prior session. The second round replays the same queries in the same order and represents the warm session where both mechanisms have had the opportunity to build up stored state. Each request is tagged with its round number and its cache state, either cold or warm, so the results can be analyzed separately.
+
+For centroid selection, a per-request routing mechanism reads the request identifier prefix before the request is sent to the vLLM server. This can be seen in the system architecture implementation from figure \ref{Per-Request Centroid Routing.png}. If the prefix begins with the string "coding", the injector selects the codingN256 centroid which was trained on Python engineering prompts. If the prefix begins with "search", the injector selects the searchN256 centroid which was trained on general knowledge prompts. Both centroid tensors are loaded into GPU memory at server startup and held in memory for the duration of the benchmark. No server restart or reloading is needed to switch between centroids. The injector selects the correct one per request at inference time based only on the prefix tag.
+
+
+The cold condition runs with no LMCache and no centroid injection so every request pays the full prefill cost for the system prompt and all prior conversation history. The LMCache-only condition stores KV blocks in CPU memory and reuses them in round 2 but provides no benefit in round 1. The centroid-only condition injects the pre-trained 256-token KV state at the start of every request in both rounds but does not use LMCache. The combined condition, as seen in figure \ref{Combined Implementation.png}, uses both simultaneously, where the centroid covers the first 256 positions and LMCache covers the remaining system prompt tokens on warm requests, leaving only the user query tokens to be prefilled by the GPU.
+
+All four conditions share the same vLLM server configuration. The model used is Qwen2.5-1.5B-Instruct on an NVIDIA T4 GPU. vLLM's native automatic prefix caching is used in all four conditions as a baseline, meaning that even the cold condition benefits from in-session prefix reuse. Additionally, the model outputs are evaluated using ROUGE-L against the cold baseline outputs to measure whether any condition changes what the model produces. Additionally, we have set the temperature to 0 for all requests so that outputs are fully deterministic.
+
+
+\subsubsection{Results}
+\begin{figure*}[h]
+    \centering
+    \includegraphics[width=0.8\textwidth]{combined_ttft_summary (1).png}
+    \caption{Mean TTFT and speedup over vLLM baseline charts for running 20 interleaved coding and search agent queries on 4 conditions(cold, LMCache, Centroid, and LMCache+Centroid).}
+    \label{Mean TTFT over cold and warm states}
+\end{figure*}
+\begin{figure*}[h]
+    \centering
+    \includegraphics[width=0.6\textwidth]{combined_ttft_cold_perturn (1).png}
+    \caption{Breakdown of Mean TTFT per turn. One turn represents running one coding and search agent query.}
+    \label{Per turn TTFT for cold state}
+\end{figure*}
+\begin{figure*}[h]
+    \centering
+    \includegraphics[width=0.6\textwidth]{Rouge-L_score.png}
+    \caption{Rouge-L score for LMCache, Centroid, and LMCache+Centroid compared to the vLLM baseline implementation.}
+    \label{Rouge-L score}
+\end{figure*}
+
+In the cold-cache condition, which covers all round 1 requests where no prior session data exists, we can see from figure \ref{Mean TTFT over cold and warm states} the centroid alone reduced mean TTFT from 1078ms to 547ms, a 1.97x speedup over the cold baseline. Additionally, LMCache alone had a 1.9x speedup by reducing mean TTFT from baseline to 568ms. The combined system had the highest speedup of 2.18x by achieving a cold-round TTFT of 494ms. LMCache is a cross-session cache and has no stored KV tensors to serve during round 1 because no prior session has completed. Any cold-round reduction from LMCache therefore comes from the same in-session native prefix caching that vLLM runs in all conditions anyway. The centroid, on the other hand, provides a guaranteed KV injection on every single request from turn 1 regardless of what prior state exists, which is why it outperforms LMCache in this condition. The combined system achieves the best cold-round result because the centroid seeds the first 256 positions and vLLM's prefix caching can then match a longer anchor prefix for the rest of the system prompt, reducing the number of tokens that need to be recomputed and the TTFT for the given request.
+
+Looking at figure \ref{Per turn TTFT for cold state} which is the per-turn breakdown at turn 1, centroid and combined both sit around 2100ms for TTFT compared to the cold baseline which had a TTFT of 2600ms. At turn 2, the gap becomes much larger. The cold baseline spikes to approximately 4400ms because the conversation history has grown and the system must now prefill the system prompt plus the prior turn's question and answer together. The centroid condition drops to around 1800ms and the combined condition drops further to around 1200ms at this same turn. This is the most impactful moment in the cold round and where the centroid's contribution is clearest. By securing the first 256 tokens with tehe centroid injection, the centroid solution reduces the effective new context that needs to be prefilled at each turn. As a result, this will help reduce the TTFT for the given request. From turn 3 onward, vLLM's in-session prefix caching has enough prior context to match on and all four conditions converge to 200 to 300ms. One exception is the cold baseline, which spikes back to approximately 2500ms at turn 9. I believe this can be because it was due to an in-session cache miss on a specific coding or search query which prompt structure did not match the prior cached prefix. The centroid and combined conditions do not experience this spike because the consistently injected first-256-token KV provides a stable matching anchor that helps vLLM's prefix caching find a hit even when the later portion of the prompt changes.
+
+The main conclusion from this benchmark is that the centroid closes the cold-start gap that LMCache alone cannot address. LMCache is effective for repeated warm requests but requires a prior session to be useful. The centroid is effective from the very first token of the very first request. In the combined system these two solutions target different parts of the problem. The centroid handles the first 256 tokens on every request regardless of cache state, and LMCache handles the remaining system prompt tokens on warm requests. After round 1 completes, the full system prompt is never re-prefilled again in either mechanism.
+
+Looking at figure \ref{Rouge-L score} for model quality, all three non-cold conditions achieved a ROUGE-L score of 1.0 against the cold baseline. One key constraint we made was setting temperature of the model to 0. With temperature set to 0, the model output is fully deterministic and the centroid injection does not shift what the model produces. The injected KV approximation of the system prompt preserves model behavior completely across all tested conditions. One limitation, we can consider is that the prompts trained for coding and search agents to build its centroids can be similar to the questions utilized during our evaluation. As a next steps, I believe it would be valuable to evaluate on more general robust questions to see the effectiveness of the centroid in maintaining model quality on more diverse questions.
+
+
+
+
+
+{\footnotesize \bibliographystyle{acm}
+\bibliography{sample}}
+
+
+
+\end{document}
+
+
+
+
+
+
+
