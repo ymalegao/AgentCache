@@ -1,0 +1,25 @@
+{"id": "ex_30", "user": "My Flask app returns 500 on every POST because request.json is None even when I send JSON. Content-Type is application/json. Debug it.", "checks": {"must_include_any": [["requests", "http", "endpoint", "url"]]}}
+{"id": "ex_62", "user": "Extract duplicated try/except logging blocks into a decorator that logs and re-raises.", "checks": {"must_include_any": [["def ", "functools", "wrapper", "@"], ["thread", "concurrent", "lock", "queue"]]}}
+{"id": "ex_155", "user": "Profile why my multiprocessing Pool is slower than sequential \u2014 fix pickling overhead.", "checks": {"must_include_any": [["open(", "with open", ".read(", ".write("]]}}
+{"id": "ex_113", "user": "Add reproducibility \u2014 set random seeds for numpy, random, and torch in one place.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_131", "user": "Fix setuptools package discovery \u2014 tests are being installed as top-level packages.", "checks": {"must_include_any": [["def test_", "assert", "pytest"]]}}
+{"id": "ex_53", "user": "Add CSV export to my Django admin list view for the Order model.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_150", "user": "Schedule this script with APScheduler to run every weekday at 9am.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_2", "user": "This decorator is supposed to retry a function 3 times on exception but it only tries once. def retry(func): def wrapper(*args): try: return func(*args) except: return func(*args). Fix it.", "checks": {"must_include_any": [["def ", "functools", "wrapper", "@"]]}}
+{"id": "ex_174", "user": "Build a minimal REPL that evals Python expressions safely without exec on user strings.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_65", "user": "Split this monolithic Django view into a service layer, serializer, and thin view function.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_124", "user": "My gunicorn workers share in-memory cache incorrectly. Move cache to Redis.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_142", "user": "Fix my code that logs full credit card numbers \u2014 mask PANs in logs.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_157", "user": "Fix deadlock in my code that acquires lock A then lock B in one thread and the reverse in another.", "checks": {"must_include_any": [["open(", "with open", ".read(", ".write("], ["thread", "concurrent", "lock", "queue"]]}}
+{"id": "ex_147", "user": "Watch a directory with watchdog and run my processor when new files appear.", "checks": {"must_include_any": [["open(", "with open", ".read(", ".write("]]}}
+{"id": "ex_66", "user": "Replace manual open()/close() file handling with context managers everywhere in this package.", "checks": {"must_include_any": [["contextmanager", "__enter__", "with"], ["open(", "with open", ".read(", ".write("]]}}
+{"id": "ex_19", "user": "I have a function that calls an external payment API. Write tests for it that mock the API so the tests don't make real network calls.", "checks": {"must_include_any": [["def test_", "assert", "pytest"], ["open(", "with open", ".read(", ".write("], ["requests", "http", "endpoint", "url"]]}}
+{"id": "ex_136", "user": "Replace pickle with a safe serialization format for data from untrusted sources.", "checks": {"must_include_any": [["def ", "import ", "class "]]}}
+{"id": "ex_84", "user": "Explain how *args and **kwargs work in decorators that need to forward arguments to the wrapped function.", "checks": {"must_include_any": [["def ", "functools", "wrapper", "@"]]}}
+{"id": "ex_67", "user": "Refactor nested loops over users and orders into a single pandas merge for readability and speed.", "checks": {"must_include_any": [["class ", "def __init__"], ["open(", "with open", ".read(", ".write("]]}}
+{"id": "ex_102", "user": "Test that my SQLAlchemy model constraints reject invalid data at the DB level using a test database.", "checks": {"must_include_any": [["def test_", "assert", "pytest"]]}}
+{"id": "ex_13", "user": "This code uses a global variable to track state between function calls. Refactor it to use a class instead.", "checks": {"must_include_any": [["class ", "def __init__"]]}}
+{"id": "ex_44", "user": "Add pydantic models for my FastAPI request/response bodies and migrate the endpoints to use them.", "checks": {"must_include_any": [["requests", "http", "endpoint", "url"]]}}
+{"id": "ex_120", "user": "Implement OAuth2 password flow login endpoint in FastAPI with passlib bcrypt hashing.", "checks": {"must_include_any": [["requests", "http", "endpoint", "url"]]}}
+{"id": "ex_79", "user": "Refactor this pytest module that uses time.sleep into freezegun or monkeypatched clocks.", "checks": {"must_include_any": [["def test_", "assert", "pytest"], ["thread", "concurrent", "lock", "queue"]]}}
+{"id": "ex_128", "user": "Add a Dockerfile for this Flask app with multi-stage build and non-root user.", "checks": {"must_include_any": [["open(", "with open", ".read(", ".write("]]}}
